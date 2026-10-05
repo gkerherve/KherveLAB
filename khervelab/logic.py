@@ -27,6 +27,22 @@ APPROVAL_LABELS = {
 }
 
 
+EXAMPLES = [
+    # name, description, approval, colour, open, close, weekends, max minutes
+    ("XPS", "X-ray photoelectron spectroscopy", "trained", "#1f6feb", "00:00", "24:00", 1, 1440),
+    ("NAP-XPS", "Near ambient pressure XPS, UPS and LEED", "manual", "#8250df", "08:00", "20:00",
+     0, 600),
+    ("TGA / DSC", "Thermogravimetric analysis and calorimetry", "trained", "#cf222e", "00:00",
+     "24:00", 1, 4320),
+    ("Dilatometer", "Thermal expansion and sintering", "trained", "#e16f24", "00:00", "24:00", 1,
+     4320),
+    ("BET", "Gas sorption surface area and porosity", "auto", "#9a6700", "00:00", "24:00", 1,
+     4320),
+    ("Glovebox", "Argon glovebox for air-sensitive samples", "auto", "#57606a", "08:00", "20:00",
+     0, 480),
+]
+
+
 class BookingError(ValueError):
     pass
 
@@ -111,6 +127,15 @@ def is_authorised(conn, user_id: int, instrument_id: int) -> bool:
 
 # -- instruments and rates -----------------------------------------------------------------
 
+def add_instrument(conn, name, description, approval, colour, open_t, close_t, weekends,
+                    max_minutes) -> int:
+    cur = conn.execute(
+        "INSERT INTO instruments (name, description, colour, approval, open_time, close_time, "
+        "weekends, max_minutes) VALUES (?,?,?,?,?,?,?,?)",
+        (name, description, colour, approval, open_t, close_t, weekends, max_minutes))
+    return cur.lastrowid
+
+
 def rate_for(conn, instrument_id: int, category: str) -> float:
     r = conn.execute("SELECT rate FROM rates WHERE instrument_id=? AND category=?",
                      (instrument_id, category)).fetchone()
@@ -184,7 +209,7 @@ class Created:
 
 
 def book(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
-         purpose: str = "", now: datetime | None = None) -> Created:
+         purpose: str = "", now: datetime | None = None, actor_id: int | None = None) -> Created:
     """Create a booking; it is approved at once or waits, depending on the
     instrument's approval mode. BEGIN IMMEDIATE serialises the clash check
     and the insert, so two people cannot take the same slot at once."""
@@ -196,10 +221,15 @@ def book(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
             raise BookingError("unknown instrument or user")
         if user["status"] != "active":
             raise BookingError("your account is not active yet")
-        errors = check(conn, inst, user, start, end, now=now)
+        actor = user
+        if actor_id and actor_id != user_id:
+            actor = conn.execute("SELECT * FROM users WHERE id=?", (actor_id,)).fetchone()
+            if actor is None or actor["role"] != "admin":
+                raise BookingError("only the lab manager can book for someone else")
+        errors = check(conn, inst, actor, start, end, now=now)
         if errors:
             raise BookingError("; ".join(errors))
-        if user["role"] == "admin" or inst["approval"] == "auto" or (
+        if actor["role"] == "admin" or inst["approval"] == "auto" or (
                 inst["approval"] == "trained" and is_authorised(conn, user_id, instrument_id)):
             status = "approved"
         else:
@@ -208,9 +238,9 @@ def book(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
         stamp = fmt(now_local(conn))
         cur = conn.execute(
             "INSERT INTO bookings (instrument_id, user_id, start, end, purpose, status, rate, "
-            "created, decided_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "created, decided_by, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (instrument_id, user_id, fmt(start), fmt(end), purpose.strip(), status, rate, stamp,
-             stamp if status == "approved" else None))
+             actor["id"] if actor is not user else None, stamp if status == "approved" else None))
         conn.execute("COMMIT")
         return Created(cur.lastrowid, status)
     except Exception:
@@ -241,6 +271,48 @@ def cancel(conn, booking_id: int, user: sqlite3.Row, note: str = "") -> None:
         raise BookingError("this booking is already closed")
     conn.execute("UPDATE bookings SET status='cancelled', decided_by=?, decided_at=?, note=? "
                  "WHERE id=?", (user["id"], fmt(now_local(conn)), note.strip(), booking_id))
+
+
+def reschedule(conn, booking_id: int, user: sqlite3.Row, start: datetime, end: datetime,
+               instrument_id: int | None = None, purpose: str | None = None) -> str:
+    """Move or resize a booking. A user's change to a booking that needed
+    approval goes back to the manager; the manager's own changes stand.
+    Returns the new status."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        b = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+        if b is None or b["status"] not in ("pending", "approved"):
+            raise BookingError("this booking can no longer be changed")
+        admin = user["role"] == "admin"
+        if not admin:
+            if b["user_id"] != user["id"]:
+                raise BookingError("you can only change your own bookings")
+            if parse(b["start"]) <= now_local(conn):
+                raise BookingError("a booking that has started can only be changed by the "
+                                   "lab manager")
+        iid = instrument_id or b["instrument_id"]
+        inst = conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
+        owner = conn.execute("SELECT * FROM users WHERE id=?", (b["user_id"],)).fetchone()
+        errors = check(conn, inst, user if admin else owner, start, end, exclude=booking_id)
+        if errors:
+            raise BookingError("; ".join(errors))
+        if admin:
+            status = b["status"]
+        elif inst["approval"] == "auto" or (
+                inst["approval"] == "trained" and is_authorised(conn, owner["id"], iid)):
+            status = "approved"
+        else:
+            status = "pending"
+        rate = rate_for(conn, iid, owner["category"]) if iid != b["instrument_id"] else b["rate"]
+        conn.execute("UPDATE bookings SET instrument_id=?, start=?, end=?, status=?, rate=?, "
+                     "purpose=? WHERE id=?",
+                     (iid, fmt(start), fmt(end), status, rate,
+                      b["purpose"] if purpose is None else purpose.strip(), booking_id))
+        conn.execute("COMMIT")
+        return status
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def cost(conn, b: sqlite3.Row) -> float:

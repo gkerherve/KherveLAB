@@ -1,4 +1,4 @@
-"""Run KherveLAB on the lab computer: `python KherveLAB.py`.
+"""Start KherveLAB: the desktop app, or (with --serve) the web pages alone.
 
 Copyright (C) 2026 Gwilherm Kerherve
 
@@ -38,11 +38,17 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="KherveLAB: instrument booking for one lab")
     p.add_argument("--data", type=Path, default=DEFAULT_DATA,
                    help=f"folder holding lab.db (default {DEFAULT_DATA})")
+    p.add_argument("--serve", action="store_true",
+                   help="no window: serve the booking web pages only (e.g. on a headless PC)")
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--host", default="0.0.0.0",
                    help="0.0.0.0 lets other computers connect; 127.0.0.1 keeps it on this one")
-    p.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    p.add_argument("--open-browser", action="store_true",
+                   help="with --serve, open the pages in a browser on this computer")
     args = p.parse_args(argv)
+    if not args.serve:
+        from .gui.app import run
+        raise SystemExit(run(args.data))
 
     app = create_app(args.data)
     local = f"http://localhost:{args.port}"
@@ -52,7 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.host == "0.0.0.0":
         print(f"  on the network: http://{lan_address()}:{args.port}   (give this address to users)")
     print("  stop with Ctrl+C")
-    if not args.no_browser:
+    if args.open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(local)).start()
     from waitress import serve
     serve(app, host=args.host, port=args.port, threads=8)

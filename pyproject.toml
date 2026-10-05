@@ -10,13 +10,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Gwilherm Kerherve" }]
-dependencies = ["Flask>=3.0", "waitress>=3.0", "reportlab>=4", "openpyxl>=3.1"]
+dependencies = ["PyQt6>=6.5", "Flask>=3.0", "waitress>=3.0", "reportlab>=4", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-qt>=4.4"]
 
-[project.scripts]
-khervelab = "khervelab.server:main"
+[project.gui-scripts]
+KherveLAB = "khervelab.server:main"
 
 [tool.setuptools.packages.find]
 include = ["khervelab*"]

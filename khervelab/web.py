@@ -23,20 +23,6 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, r
 
 from . import __version__, db, logic, reports
 
-EXAMPLES = [
-    # name, description, approval, colour, open, close, weekends, max minutes
-    ("XPS", "X-ray photoelectron spectroscopy", "trained", "#1f6feb", "00:00", "24:00", 1, 1440),
-    ("NAP-XPS", "Near ambient pressure XPS, UPS and LEED", "manual", "#8250df", "08:00", "20:00",
-     0, 600),
-    ("TGA / DSC", "Thermogravimetric analysis and calorimetry", "trained", "#cf222e", "00:00",
-     "24:00", 1, 4320),
-    ("Dilatometer", "Thermal expansion and sintering", "trained", "#e16f24", "00:00", "24:00", 1,
-     4320),
-    ("BET", "Gas sorption surface area and porosity", "auto", "#9a6700", "00:00", "24:00", 1,
-     4320),
-    ("Glovebox", "Argon glovebox for air-sensitive samples", "auto", "#57606a", "08:00", "20:00",
-     0, 480),
-]
 
 
 def create_app(data_dir: Path | str) -> Flask:
@@ -134,7 +120,7 @@ def create_app(data_dir: Path | str) -> Flask:
             f = request.form
             if f.get("password") != f.get("password2"):
                 flash("The passwords differ.", "error")
-                return render_template("setup.html", examples=EXAMPLES, form=f)
+                return render_template("setup.html", examples=logic.EXAMPLES, form=f)
             try:
                 db.set_setting(g.db, "lab_name", f.get("lab_name", "").strip() or "My lab")
                 db.set_setting(g.db, "currency", f.get("currency", "£").strip() or "£")
@@ -143,15 +129,15 @@ def create_app(data_dir: Path | str) -> Flask:
                                         role="admin", status="active")
             except ValueError as exc:
                 flash(str(exc), "error")
-                return render_template("setup.html", examples=EXAMPLES, form=f)
-            for ex in EXAMPLES:
+                return render_template("setup.html", examples=logic.EXAMPLES, form=f)
+            for ex in logic.EXAMPLES:
                 if f.get(f"ex_{ex[0]}"):
-                    _add_instrument(g.db, *ex)
+                    logic.add_instrument(g.db, *ex)
             session.clear()
             session["uid"] = uid
             flash("Your lab is ready. Add or edit instruments and set their hourly rates.", "ok")
             return redirect(url_for("admin_instruments"))
-        return render_template("setup.html", examples=EXAMPLES, form={})
+        return render_template("setup.html", examples=logic.EXAMPLES, form={})
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -577,15 +563,6 @@ def create_app(data_dir: Path | str) -> Flask:
 
 def _all(conn, table: str, order: str = "name"):
     return conn.execute(f"SELECT * FROM {table} ORDER BY {order}").fetchall()
-
-
-def _add_instrument(conn, name, description, approval, colour, open_t, close_t, weekends,
-                    max_minutes) -> int:
-    cur = conn.execute(
-        "INSERT INTO instruments (name, description, colour, approval, open_time, close_time, "
-        "weekends, max_minutes) VALUES (?,?,?,?,?,?,?,?)",
-        (name, description, colour, approval, open_t, close_t, weekends, max_minutes))
-    return cur.lastrowid
 
 
 def _instrument_form(f) -> tuple:

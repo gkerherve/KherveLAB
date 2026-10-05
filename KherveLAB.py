@@ -1,4 +1,4 @@
-"""Start KherveLAB on this computer: ``python KherveLAB.py [--port 8080] [--data FOLDER]``."""
+"""Start KherveLAB on this computer: ``python KherveLAB.py [--data FOLDER] [--serve]``."""
 
 from khervelab.server import main
 

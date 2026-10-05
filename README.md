@@ -1,12 +1,18 @@
 # KherveLAB
 
-Instrument booking for a single research lab. One computer in the lab runs
-KherveLAB. People open it in a web browser, either on that computer or from
-their own machine at its network address. They log in with their own account
-and book time on an instrument. Depending on how the lab manager set up that
-instrument, the booking is approved at once or waits for the manager. Each
-instrument has hourly rates, so the manager can produce a usage and cost
-statement for any user and period whenever one is asked for.
+A desktop app for booking the instruments of one research lab. It runs on the
+lab computer:
+
+- **Accounts:** people log in with their own account and book time from the
+  schedule.
+- **Approval:** depending on how the lab manager set up each instrument, a
+  booking is approved at once or waits for the manager.
+- **Costs:** each instrument has hourly rates, so the manager can produce a
+  usage and cost statement for any user and period.
+
+If wanted, the app can also share booking pages on the lab network, so people
+can book from their own computer's browser into the same schedule. This is
+optional: the app is the main way in.
 
 It is part of the Kherve Tools suite. An earlier, department-wide design is
 kept under the git tag `v0.7-department`.
@@ -19,91 +25,96 @@ python3 -m venv .venv
 .venv/bin/python KherveLAB.py
 ```
 
-KherveLAB prints two addresses and opens a browser on the first:
+On first launch KherveLAB asks for:
 
-```
-  on this PC:     http://localhost:8080
-  on the network: http://192.168.1.23:8080   (give this address to users)
-```
+- the lab's name;
+- the lab manager's account;
+- optionally, a set of starting instruments (XPS, NAP-XPS, TGA/DSC,
+  dilatometer, BET, glovebox). You can rename, edit or remove them, and add
+  your own.
 
-The first visit asks you to create the lab manager's account. It can also add
-some starting instruments for you.
+After that, every launch opens a login window. **Create an account…** in that
+window lets new people register.
 
-Options:
+All data is kept in one SQLite file: `~/KherveLAB-data/lab.db`, or a folder of
+your choice with `--data FOLDER`.
 
-- `--port 8080`: the port to serve on.
-- `--data FOLDER`: where the data lives. The default is `~/KherveLAB-data`.
-- `--host 127.0.0.1`: accept connections from this computer only.
-- `--no-browser`: do not open a browser window at start.
+## The schedule
 
-All data is kept in one SQLite file, `lab.db`, in the data folder. **Settings
-▸ Download a backup** saves a copy of it.
+- **Tabs:** *All instruments*, then one tab per instrument, each with its own
+  calendar. Each instrument tab shows your rate, whether your bookings are
+  approved at once, the opening hours and the allowed booking length.
+- **Views:** Day, Week and Month (Ctrl+1/2/3); ◀ ▶ and Today, or ←/→ and T.
+  On the *All instruments* tab, the day view puts the instruments side by
+  side, one column each.
+- **Booking:** drag across empty time to book. The booking window shows the
+  hours, the cost at your rate, whether the booking will be approved at once,
+  and anything that breaks the instrument's rules.
+- **Changing a booking:** drag it to move it, drag its bottom edge to resize
+  it, and double-click it for details, editing or cancelling. If you change a
+  booking on an instrument that needs approval, it goes back to the lab
+  manager.
+- **How bookings look:** a pending request is drawn dashed and pale. Closed
+  hours are shaded. Other people's purposes and costs stay private.
+- **My bookings** (Ctrl+B) lists your bookings with their status, cost and
+  this month's total. **Lab ▸ My statement** saves your own PDF, Excel or CSV
+  statement.
 
-## For users
+## The lab manager
 
-1. **Create an account** with your name, email, group and rate category. When
-   the lab manager has switched account approval on, you can log in only once
-   they approve you.
-2. **Book**: open an instrument, drag across its calendar, add a purpose and
-   press **Book** (or **Request approval**). The form shows your hourly rate
-   and the estimated cost before you book.
-3. **My bookings** lists your bookings with their status and cost, and this
-   month's total. You can cancel a booking until it starts.
+The manager sees everything the users see, plus the following:
 
-## For the lab manager
-
-- **Requests** shows the bookings and new accounts waiting for you. Approve or
-  reject each one, with an optional note to the user.
-- **Instruments & rates**: for each instrument you set:
-  - **Approval**: one of three modes.
+- **Requests**: a panel of the bookings and new accounts waiting for approval.
+  Approve them, or reject them with a reason.
+- **Instruments**: for each instrument you set:
+  - **Approval mode:**
     - *Automatic*: every booking is approved at once.
-    - *Automatic for trained users*: people you have marked as trained book at
-      once; everyone else waits for you.
+    - *Automatic for trained users*: trained users book at once; everyone else
+      waits for you.
     - *Manual*: every booking waits for you.
-  - **Hourly rate for each user category.** The default categories are
-    Internal, External academic and Industry; you can rename them in Settings.
-    A booking keeps the rate in force when it was made, so changing a rate
-    never rewrites past charges.
-  - **Booking rules**: slot length, shortest and longest booking, how far
-    ahead people can book, opening hours (or around the clock, for overnight
-    runs) and weekends.
+  - **Hourly rate for each user category.** The defaults are Internal,
+    External academic and Industry; you can change them in Lab settings.
+  - **Booking rules**: slot, shortest and longest booking, how far ahead,
+    opening hours or around the clock, and weekends.
   - **Trained users.**
-- **Users**: approve, disable or edit accounts, change a user's rate category,
-  mark training, reset a password, or make someone a co-manager.
-- **All bookings**: filter by date, instrument, user and status, and cancel
-  any booking.
+- **Users**: approve, disable or edit accounts, set rate categories and
+  training, reset passwords, or add a co-manager.
 - **Reports**: usage and costs for any period. You can filter by user or
-  instrument, and see totals by user, group and instrument. Download formats:
-  - **PDF**: one statement page per user, ready to send, plus a summary page;
+  instrument. Save formats:
+  - **PDF**: one statement page per user, ready to send, plus a summary;
   - **Excel**;
   - **CSV**.
+- **Lab settings**: name, currency, time zone, rate categories, whether
+  accounts need approval, and whether users see who booked a slot. Back up the
+  database from here.
+- **Booking from other computers** (Manage menu): starts or stops the booking
+  web pages on the lab network and shows the address to hand out. People log
+  in with the same accounts, and their bookings appear in the app within 30
+  seconds.
 
-  Only approved bookings are charged, by the time actually elapsed (a booking
-  across a clock change is billed for the real hours).
-- **Settings**: lab name, currency, time zone, rate categories, whether new
-  accounts need approval, and whether users see who booked each slot. Backups
-  are downloaded from here too.
+The manager is held only to the hard rules (no overlaps). This lets them book
+for maintenance at any time, or book on someone's behalf: that booking is
+approved and charged at the person's rate.
 
-The lab manager is held only to the hard rules (no overlaps). This lets them
-block an instrument for maintenance, or book at any hour.
+Billing rules:
 
-## Security notes
+- A booking keeps the hourly rate in force when it was made, so changing a
+  rate never rewrites past charges.
+- Only approved bookings are charged, by the time actually elapsed.
 
-- **Passwords** are stored as salted hashes.
-- **Sessions** are signed cookies that last 12 hours.
-- **Forms** carry a token against cross-site request forgery.
-- **Network**: KherveLAB is meant for a lab's local network. Do not expose it
-  directly to the internet. If people need it from outside, put it behind the
-  institution's VPN.
+## Without a screen
+
+On a computer with no display, `python KherveLAB.py --serve [--port 8080]`
+runs only the web pages, served by waitress.
 
 ## Tests
 
 ```bash
-.venv/bin/pip install pytest
-.venv/bin/python -m pytest -q
+.venv/bin/pip install pytest pytest-qt
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
 ## Licence
 
-GPL v3 or later. © 2026 Gwilherm Kerherve. FullCalendar (MIT) is vendored in
-`khervelab/static/vendor/`.
+GPL v3 or later. © 2026 Gwilherm Kerherve. FullCalendar (MIT), used by the
+optional web pages, is vendored in `khervelab/static/vendor/`.

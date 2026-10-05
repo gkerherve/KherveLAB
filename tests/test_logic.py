@@ -191,3 +191,49 @@ def test_report_exports(conn):
     assert only_alice.total_cost == 80.0
     assert reports.to_pdf(only_alice)[:4] == b"%PDF"
     assert reports.to_pdf(reports.build(conn, d, d, user_id=999))[:4] == b"%PDF"  # empty is fine
+
+
+def test_reschedule_rules(conn):
+    i = mk_inst(conn, "manual")
+    a, b = user(conn, "alice"), user(conn, "bob")
+    boss = user(conn, "boss", role="admin")
+    res = logic.book(conn, i, a, nextweekday(9), nextweekday(11))
+    logic.decide(conn, res.id, boss, True)
+    row = lambda uid: conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    # moving an approved manual booking sends it back for approval
+    assert logic.reschedule(conn, res.id, row(a), nextweekday(13), nextweekday(15)) == "pending"
+    with pytest.raises(logic.BookingError, match="your own"):
+        logic.reschedule(conn, res.id, row(b), nextweekday(9), nextweekday(10))
+    other = logic.book(conn, i, b, nextweekday(16), nextweekday(17))
+    with pytest.raises(logic.BookingError, match="overlaps"):
+        logic.reschedule(conn, res.id, row(a), nextweekday(14), nextweekday(17))
+    # the manager's change keeps the status
+    logic.decide(conn, other.id, boss, True)
+    assert logic.reschedule(conn, other.id, row(boss), nextweekday(17), nextweekday(18)) == \
+        "approved"
+
+
+def test_reschedule_to_other_instrument_takes_its_rate(conn):
+    i, j = mk_inst(conn, "auto"), mk_inst(conn, "auto", name="BET")
+    conn.execute("INSERT INTO rates VALUES (?, 'Internal', 10)", (i,))
+    conn.execute("INSERT INTO rates VALUES (?, 'Internal', 30)", (j,))
+    a = user(conn)
+    res = logic.book(conn, i, a, nextweekday(9), nextweekday(10))
+    ua = conn.execute("SELECT * FROM users WHERE id=?", (a,)).fetchone()
+    logic.reschedule(conn, res.id, ua, nextweekday(9), nextweekday(10), instrument_id=j)
+    b = conn.execute("SELECT * FROM bookings WHERE id=?", (res.id,)).fetchone()
+    assert b["instrument_id"] == j and b["rate"] == 30
+
+
+def test_manager_books_on_behalf_of_a_user(conn):
+    i = mk_inst(conn, "manual")
+    conn.execute("INSERT INTO rates VALUES (?, 'Industry', 200)", (i,))
+    corp = user(conn, "corp", category="Industry")
+    boss = user(conn, "boss", role="admin")
+    sat = datetime.now() + timedelta(days=(5 - datetime.now().weekday()) % 7 or 7)
+    res = logic.book(conn, i, corp, sat.replace(hour=9, minute=0), sat.replace(hour=10, minute=0),
+                     actor_id=boss)
+    b = conn.execute("SELECT * FROM bookings WHERE id=?", (res.id,)).fetchone()
+    assert res.status == "approved" and b["user_id"] == corp and b["rate"] == 200
+    with pytest.raises(logic.BookingError, match="only the lab manager"):
+        logic.book(conn, i, corp, nextweekday(9), nextweekday(10), actor_id=user(conn, "x"))
