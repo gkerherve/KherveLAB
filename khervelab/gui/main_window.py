@@ -16,15 +16,17 @@ from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QLabel, QMainWindow,
-                             QMessageBox, QTabWidget, QToolBar, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QHBoxLayout, QLabel,
+                             QMainWindow, QMessageBox, QPushButton, QTabWidget, QToolBar,
+                             QVBoxLayout, QWidget)
 
 from .. import __app_name__, __version__, db, logic
 from . import theme
 from .admin import InstrumentsDialog, NetworkServer, ServerDialog, SettingsDialog, UsersDialog, \
     swatch
 from .calendar import DAY, MONTH, WEEK, CalendarView
-from .dialogs import AccountDialog, BookingDetailsDialog, BookingDialog
+from .dialogs import (AccountDialog, BookingDetailsDialog, BookingDialog, LoginDialog,
+                      RegisterDialog)
 from .panels import MyBookingsDialog, ReportsDialog, RequestsWidget
 
 REFRESH_MS = 30_000      # bookings made through the web pages appear within this
@@ -45,12 +47,20 @@ class ScheduleTab(QWidget):
         lay.addWidget(self.view)
 
 
+# nobody logged in: the schedule stays on screen for anyone to look at
+GUEST = {"id": 0, "role": "guest", "username": "", "full_name": "Guest", "email": "",
+         "group_name": "", "category": "", "status": "active"}
+
+
 class MainWindow(QMainWindow):
-    logoutRequested = pyqtSignal()
+    # the user to switch to (None = log out), and what to do in the new window
+    switchUser = pyqtSignal(object, object)
 
     def __init__(self, conn, me, data_dir: Path, settings: QSettings,
                  server: NetworkServer | None = None):
         super().__init__()
+        self.guest = me is None
+        me = GUEST if me is None else me
         self.conn, self.me, self.data_dir, self.settings = conn, me, data_dir, settings
         self.server = server or NetworkServer(data_dir)
         self.dark = settings.value("dark", False, type=bool)
@@ -107,7 +117,8 @@ class MainWindow(QMainWindow):
             self.view_actions[key] = a
         tb.addSeparator()
         tb.addAction(act("New booking", self.new_booking, "Ctrl+N"))
-        tb.addAction(act("My bookings", self.my_bookings, "Ctrl+B"))
+        if not self.guest:
+            tb.addAction(act("My bookings", self.my_bookings, "Ctrl+B"))
 
         self.requests = None
         if self.admin:
@@ -128,13 +139,46 @@ class MainWindow(QMainWindow):
             tb.addAction(act("Reports", self.reports, "Ctrl+E"))
             self.requests.refresh()
 
+        # the account area: top-right corner of the schedule tabs, always in view
+        account = QWidget()
+        al = QHBoxLayout(account)
+        al.setContentsMargins(8, 2, 8, 2)
+        al.setSpacing(6)
+        if self.guest:
+            hint = QLabel("Not logged in — anyone can look; log in to book")
+            hint.setStyleSheet("color: #57606a;")
+            self.login_button = QPushButton("Log in")
+            self.login_button.setDefault(True)
+            self.login_button.clicked.connect(lambda: self.login())
+            register = QPushButton("Create account")
+            register.clicked.connect(self.register)
+            for wdg in (hint, register, self.login_button):
+                al.addWidget(wdg)
+        else:
+            role = "lab manager" if self.admin else (self.me["category"] or "user")
+            who = QPushButton(f"{self.me['full_name']} ({role})")
+            who.setFlat(True)
+            who.setToolTip("My account")
+            who.clicked.connect(self.account)
+            self.logout_button = QPushButton("Log out")
+            self.logout_button.setToolTip("Log out (Ctrl+Shift+L); the schedule stays on screen")
+            self.logout_button.clicked.connect(self.logout)
+            al.addWidget(who)
+            al.addWidget(self.logout_button)
+        self.tabs.setCornerWidget(account, Qt.Corner.TopRightCorner)
+
         mb = self.menuBar()
         fm = mb.addMenu("&Lab")
-        fm.addAction(act("My account…", self.account))
-        fm.addAction(act("My statement…", lambda: ReportsDialog(self.conn, self.me, self,
-                                                                 only_me=True).exec()))
+        if self.guest:
+            fm.addAction(act("Log in…", lambda: self.login(), "Ctrl+L"))
+            fm.addAction(act("Create an account…", self.register))
+        else:
+            fm.addAction(act("My account…", self.account))
+            fm.addAction(act("My statement…", lambda: ReportsDialog(self.conn, self.me, self,
+                                                                     only_me=True).exec()))
+            fm.addSeparator()
+            fm.addAction(act("Log out", self.logout, "Ctrl+Shift+L"))
         fm.addSeparator()
-        fm.addAction(act("Switch user / log out", self.logout, "Ctrl+Shift+L"))
         fm.addAction(act("Quit", self.close, "Ctrl+Q"))
         vm = mb.addMenu("&View")
         for a in self.view_actions.values():
@@ -169,8 +213,11 @@ class MainWindow(QMainWindow):
     def _title(self):
         lab = db.setting(self.conn, "lab_name")
         self.setWindowTitle(f"{lab} — {__app_name__} v{__version__}")
-        role = "lab manager" if self.admin else (self.me["category"] or "user")
-        self.user_label.setText(f"  {self.me['full_name']} ({role})  ")
+        if self.guest:
+            self.user_label.setText("  Not logged in  ")
+        else:
+            role = "lab manager" if self.admin else (self.me["category"] or "user")
+            self.user_label.setText(f"  {self.me['full_name']} ({role})  ")
         self.net_label.setText("  Sharing on " + self.server.urls()[-1] + "  "
                                if self.server.running else "")
 
@@ -205,7 +252,12 @@ class MainWindow(QMainWindow):
         return t
 
     def refresh(self):
-        self.me = self.conn.execute("SELECT * FROM users WHERE id=?", (self.me["id"],)).fetchone()
+        if not self.guest:
+            me = self.conn.execute("SELECT * FROM users WHERE id=?", (self.me["id"],)).fetchone()
+            if me is None or me["status"] != "active":      # disabled while logged in
+                self.logout()
+                return
+            self.me = me
         self._title()
         tab: ScheduleTab | None = self.tabs.currentWidget()
         if tab is None:
@@ -239,6 +291,9 @@ class MainWindow(QMainWindow):
                                                                and trained)
         approval = ("books at once" if instant else
                     "<span style='color:#9a6700'>bookings need approval</span>")
+        if self.guest:
+            approval = html.escape(logic.APPROVAL_LABELS[inst["approval"]].lower()) + \
+                " · <i>log in to see your price</i>"
         head = [f"<b>{html.escape(inst['name'])}</b>",
                 html.escape(inst["description"]) if inst["description"] else "", approval]
         if inst["booking_mode"] == "sessions":
@@ -252,7 +307,7 @@ class MainWindow(QMainWindow):
                              f"{logic.days_label(r['days'])}: {cost}")
             return " · ".join(b for b in head if b) + "<br>Sessions — " + \
                 ("; ".join(parts) if parts else "none defined yet")
-        bits = head + [f"{cur}{rate:,.2f}/h for you",
+        bits = head + ([] if self.guest else [f"{cur}{rate:,.2f}/h for you"]) + [
                        f"daytime bookings {logic.fmt_duration(inst['min_minutes'])}–"
                        f"{logic.fmt_duration(inst['max_minutes'])}"]
         return " · ".join(b for b in bits if b) + "<br>" + \
@@ -297,6 +352,9 @@ class MainWindow(QMainWindow):
         self.create_booking(iid, start, start + timedelta(hours=1))
 
     def create_booking(self, iid: int, start: datetime, end: datetime):
+        if self.guest:
+            self.login(lambda win: win.create_booking(iid, start, end))
+            return
         inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
         if inst is not None and inst["booking_mode"] == "free":
             start = logic.snap_start(inst, start)
@@ -347,6 +405,9 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def open_booking(self, bid: int):
+        if self.guest:
+            self.login(lambda win: win.open_booking(bid))
+            return
         dlg = BookingDetailsDialog(self.conn, self.me, bid, self)
         dlg.exec()
         if dlg.changed:
@@ -385,9 +446,33 @@ class MainWindow(QMainWindow):
         if AccountDialog(self.conn, self.me, self).exec() == QDialog.DialogCode.Accepted:
             self.refresh()
 
+    # -- logging in and out ------------------------------------------------------
+    def view_state(self) -> dict:
+        tab = self.tabs.currentWidget()
+        return {"geometry": self.saveGeometry(), "anchor": self.anchor, "mode": self.mode,
+                "instrument": tab.instrument_id if tab is not None else None}
+
+    def restore_view(self, state: dict) -> None:
+        self.restoreGeometry(state["geometry"])
+        self.anchor = state["anchor"]
+        self.set_mode(state["mode"])
+        for i in range(self.tabs.count()):
+            if self.tabs.widget(i).instrument_id == state["instrument"]:
+                self.tabs.setCurrentIndex(i)
+        self.refresh()
+
+    def login(self, then=None):
+        dlg = LoginDialog(self.conn, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.timer.stop()
+            self.switchUser.emit(dlg.user, then)
+
+    def register(self):
+        RegisterDialog(self.conn, self).exec()
+
     def logout(self):
         self.timer.stop()
-        self.logoutRequested.emit()
+        self.switchUser.emit(None, None)
 
     def _dark(self, on: bool):
         self.dark = on

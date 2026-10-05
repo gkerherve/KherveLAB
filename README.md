@@ -33,8 +33,19 @@ On first launch KherveLAB asks for:
   dilatometer, BET, glovebox). You can rename, edit or remove them, and add
   your own.
 
-After that, every launch opens a login window. **Create an account…** in that
-window lets new people register.
+After that, KherveLAB opens with **nobody logged in**:
+
+- **Looking:** the schedule is on screen for anyone to check what's free.
+- **Logging in:** **Log in** and **Create account** sit at the top right of
+  the schedule.
+- **Starting a booking first:** if you start a booking or open one before
+  logging in, KherveLAB asks you to log in and then carries on.
+- **Logged in:** the same corner shows your name (click it for your account)
+  and **Log out** (Ctrl+Shift+L).
+- **Changing user:** logging in or out keeps the instrument tab, date and view
+  you were on.
+- **Disabled accounts:** if the lab manager disables an account while it is
+  logged in, it is logged out at the next refresh.
 
 All data is kept in one SQLite file: `~/KherveLAB-data/lab.db`, or a folder of
 your choice with `--data FOLDER`.

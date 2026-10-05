@@ -93,6 +93,13 @@ Stack:
   charged at that person's rate.
 - Other users' booking purposes and costs are visible only to their owner
   and the manager.
+- The GUI starts with nobody logged in (`main_window.GUEST`): the schedule
+  is read-only, and booking actions ask to log in and then continue
+  (`switchUser(user, then)`). `gui/app.py` builds one `MainWindow` per user
+  and carries the view across (`view_state` / `restore_view`).
+- The account controls sit in the tab bar's corner widget. Do not put an
+  expanding spacer in the toolbar: it caused a layout-dependent segfault in
+  `CalendarView.drawForeground` during the tests.
 - The GUI and the web pages share `lab.db` (WAL mode); the GUI refreshes
   every 30 s.
 

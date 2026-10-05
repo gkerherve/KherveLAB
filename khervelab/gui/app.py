@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import QApplication, QDialog
 from .. import __app_name__, db
 from . import theme
 from .admin import NetworkServer
-from .dialogs import LoginDialog, SetupDialog
+from .dialogs import SetupDialog
 from .main_window import MainWindow
 
 
@@ -43,22 +43,23 @@ def run(data_dir: Path) -> int:
 
     state = {"window": None}
 
-    def sign_in(u=None):
-        if u is None:
-            login = LoginDialog(conn)
-            if login.exec() != QDialog.DialogCode.Accepted:
-                server.stop()
-                app.quit()
-                return
-            u = login.user
+    def show(u, then=None):
+        """One window per user (or none logged in); the view carries over."""
+        old = state["window"]
         win = MainWindow(conn, u, data_dir, settings, server)
-        win.logoutRequested.connect(lambda: (win.hide(), win.deleteLater(), sign_in()))
+        win.switchUser.connect(show)
+        if old is not None:
+            win.restore_view(old.view_state())
         state["window"] = win
         win.show()
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        if then is not None:
+            then(win)
 
-    sign_in(user)
-    if state["window"] is None:
-        return 0
+    # starts with nobody logged in: the schedule is on screen, Log in is a click away
+    show(user)
     code = app.exec()
     server.stop()
     return code

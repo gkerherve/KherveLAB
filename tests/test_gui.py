@@ -375,3 +375,51 @@ def test_drag_in_evening_takes_the_whole_block(qtbot, lab):
     view = w.tabs.currentWidget().view
     s0, e0 = view._snap_create(d.weekday(), at(d, 19), None)
     assert (s0, e0) == (at(d, 17), at(d, 8) + timedelta(days=1))
+
+
+def test_nobody_logged_in_sees_the_schedule_and_a_login_button(qtbot, lab):
+    d = weekday()
+    logic.book(lab["conn"], lab["xps"], lab["alice"]["id"], at(d, 9), at(d, 11), "secret")
+    st = QSettings(str(lab["dir"] / "g.ini"), QSettings.Format.IniFormat)
+    w = MainWindow(lab["conn"], None, lab["dir"], st)
+    qtbot.addWidget(w)
+    w.show()
+    assert w.guest and w.login_button.text() == "Log in" and w.requests is None
+    w.anchor = d
+    w.tabs.setCurrentIndex(2)
+    w.set_mode("week")
+    (item,) = items(w)
+    assert not item.editable and "secret" not in item.toolTip()
+    assert "log in to see your price" in w.tabs.currentWidget().info.text()
+    # trying to book asks to log in first, then carries on in the new window
+    asked = []
+    w.login = lambda then=None: asked.append(then)
+    w.create_booking(lab["xps"], at(d, 13), at(d, 14))
+    assert asked and callable(asked[0])
+
+
+def test_log_out_and_view_carries_over(qtbot, lab):
+    w = window(qtbot, lab)
+    assert w.logout_button.text() == "Log out"
+    w.anchor = weekday(9)
+    w.tabs.setCurrentIndex(2)
+    w.set_mode("day")
+    got = []
+    w.switchUser.connect(lambda u, then: got.append(u))
+    w.logout()
+    assert got == [None]
+    st = QSettings(str(lab["dir"] / "g.ini"), QSettings.Format.IniFormat)
+    g = MainWindow(lab["conn"], None, lab["dir"], st)
+    qtbot.addWidget(g)
+    g.restore_view(w.view_state())
+    assert g.anchor == weekday(9) and g.mode == "day"
+    assert g.tabs.currentWidget().instrument_id == lab["xps"]
+
+
+def test_disabled_while_logged_in_is_logged_out(qtbot, lab):
+    w = window(qtbot, lab)
+    got = []
+    w.switchUser.connect(lambda u, then: got.append(u))
+    lab["conn"].execute("UPDATE users SET status='disabled' WHERE id=?", (lab["alice"]["id"],))
+    w.refresh()
+    assert got == [None]
