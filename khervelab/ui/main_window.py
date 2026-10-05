@@ -16,7 +16,8 @@ from datetime import date, datetime, timedelta
 
 from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPixmap, QShortcut
-from PyQt6.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit, QMainWindow, QMessageBox,
+from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QLabel, QLineEdit, QMainWindow,
+                             QMessageBox,
                              QSplitter, QTextBrowser, QToolBar, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
@@ -30,6 +31,7 @@ from . import theme
 from .booking_dialog import BookingDialog
 from .calendar_view import DAY, MONTH, WEEK, CalendarView
 from .dialogs import ClashDialog, ConflictDialog, SetupDialog
+from .requests_panel import RequestsPanel
 
 SYNC_INTERVAL_MS = 5 * 60 * 1000
 PUSH_DEBOUNCE_MS = 3000
@@ -141,6 +143,15 @@ class MainWindow(QMainWindow):
         self.sync_label = QLabel()
         self.statusBar().addPermanentWidget(self.sync_label)
 
+        self.requests = RequestsPanel(self.svc)
+        self.requests.bookingsChanged.connect(self._after_change)
+        self.requests.countChanged.connect(self._requests_count)
+        self.requests_dock = QDockWidget("Booking requests", self)
+        self.requests_dock.setObjectName("requests")
+        self.requests_dock.setWidget(self.requests)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.requests_dock)
+        self.requests_dock.hide()
+
     def _build_actions(self):
         tb = QToolBar("Navigation")
         tb.setMovable(False)
@@ -185,6 +196,11 @@ class MainWindow(QMainWindow):
         tb.addAction(act("Sync now", self.sync, "Ctrl+R", "Pull and push the facility repository"))
         tb.addAction(act("Publish now", self.publish_now, "Ctrl+Shift+P",
                          "Regenerate the public calendar in docs/ and push it"))
+        tb.addSeparator()
+        self.a_requests = self.requests_dock.toggleViewAction()
+        self.a_requests.setText("Requests")
+        self.a_requests.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        tb.addAction(self.a_requests)
 
         # bare keys act only while the calendar has focus, so the sidebar
         # keeps its own arrow-key navigation
@@ -199,6 +215,7 @@ class MainWindow(QMainWindow):
         fm = mb.addMenu("&File")
         fm.addAction(act("New / open facility…", self._switch_facility))
         fm.addAction(act("Reload from disk", self._reload))
+        fm.addAction(act("GitHub token…", lambda: self.requests.edit_token()))
         fm.addSeparator()
         fm.addAction(act("Quit", self.close, "Ctrl+Q"))
         vm = mb.addMenu("&View")
@@ -453,6 +470,11 @@ class MainWindow(QMainWindow):
         self.refresh()
         self.push_timer.start()
 
+    def _requests_count(self, n: int):
+        self.a_requests.setText(f"Requests ({n})" if n else "Requests")
+        if n and not self.requests_dock.isVisible():
+            self.statusBar().showMessage(f"{n} booking request(s) waiting", 8000)
+
     # -- publishing -------------------------------------------------------
     def _publish(self) -> bool:
         try:
@@ -536,6 +558,7 @@ class MainWindow(QMainWindow):
             self.svc.reload()
         except ConfigError as exc:
             QMessageBox.warning(self, "Invalid file", str(exc))
+        self.requests.set_service(self.svc)
         self._populate_sidebar()
         self.refresh()
 
@@ -545,6 +568,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("repo_path", str(dlg.repo.path))
             self.repo = dlg.repo
             self.svc = FacilityService(self.repo)
+            self.requests.set_service(self.svc)
             self.setWindowTitle(f"{__app_name__} v{__version__} — {self.svc.cfg.facility.name}")
             self._populate_sidebar()
             self.refresh()

@@ -77,6 +77,32 @@ FullCalendar 6 (MIT) is vendored, and the data is also written to
 Only the instrument, the time, the anonymous display string and the kind of
 booking are published. Notes and samples never are.
 
+## Booking requests (Phase 3)
+
+To turn requests on:
+
+1. Set `github: owner/repo` in `facility.yaml`.
+2. Store a fine-grained token with **Issues: read and write** permission
+   (File ▸ GitHub token…). It is kept in the system keychain.
+
+On the published calendar, **Request a slot** opens a pre-filled GitHub issue
+form (`.github/ISSUE_TEMPLATE/booking-request.yml`). Selecting a time on an
+instrument's page pre-fills the date, the start and the duration.
+
+The app polls open issues labelled `booking-request` every 5 minutes. It parses
+each one, accepting hand-edited bodies too, and runs the booking rules against
+the live calendar. The **Requests** panel then lets you:
+
+- **Approve**: books the slot, comments the confirmed slot and closes the issue;
+- **Decline**: comments your reason and closes the issue;
+- **Propose another time**: comments the first free slot of the same length.
+
+GitHub users are mapped to anonymous user ids through the `github` field of
+`users/*.yaml`. An unknown author prompts you to create a user.
+
+The GitHub client uses only the standard library. ETags keep repeated polls
+off the rate limit.
+
 ## The facility repository
 
 ```

@@ -147,3 +147,22 @@ def test_move_writes_one_commit(window):
     assert len(list(window.repo.git.iter_commits())) == n + 1
     (moved,) = window.svc.bookings()
     assert moved.start.hour == 12
+
+
+def test_requests_panel_lists_and_approves(window, qtbot, monkeypatch):
+    from khervelab.core.requests import RequestQueue
+    from tests.test_requests import FakeClient, issue
+    from khervelab.core.models import User
+    window.svc.save_user(User("u-0002", "Student", github="phd-student", permissions=("xps",)))
+    client = FakeClient([issue(11)])
+    panel = window.requests
+    panel.queue = RequestQueue(window.svc, client)
+    panel.queue.poll()
+    panel._polled(panel.queue.items)
+    assert panel.table.rowCount() == 1
+    assert "OK" in panel.table.item(0, 4).text()
+    assert window.a_requests.text() == "Requests (1)"
+    panel.table.selectRow(0)
+    panel.approve()
+    assert client.closed == [(11, "completed")]
+    assert len(window.svc.bookings()) == 1
