@@ -16,8 +16,8 @@ from datetime import date, datetime, timedelta
 
 from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPixmap, QShortcut
-from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QLabel, QLineEdit, QMainWindow,
-                             QMessageBox,
+from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QInputDialog, QLabel, QLineEdit,
+                             QMainWindow, QMessageBox,
                              QSplitter, QTextBrowser, QToolBar, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
@@ -31,7 +31,9 @@ from . import theme
 from .booking_dialog import BookingDialog
 from .calendar_view import DAY, MONTH, WEEK, CalendarView
 from .dialogs import ClashDialog, ConflictDialog, SetupDialog
+from .data_ui import DataPanel, FoldersDialog
 from .logbook_ui import Dashboard
+from .samples_ui import SamplePage, SamplesBrowser
 from .requests_panel import RequestsPanel
 from . import people as people_ui
 
@@ -70,9 +72,11 @@ def _swatch(colour: str) -> QIcon:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, repo: FacilityRepo, settings: QSettings, store=None, store_error: str = ""):
+    def __init__(self, repo: FacilityRepo, settings: QSettings, store=None, store_error: str = "",
+                 index=None):
         super().__init__()
         self.settings = settings
+        self.index = index
         self.store = store
         self.store_error = store_error
         self.repo = repo
@@ -165,6 +169,20 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.dashboard_dock], [380], Qt.Orientation.Horizontal)
         self.dashboard_dock.hide()
 
+        self.data_dock = QDockWidget("Data index", self)
+        self.data_dock.setObjectName("data")
+        if self.index is not None:
+            self.data = DataPanel(self.svc, self.index, self.open_files)
+            self.data.sampleRequested.connect(self.open_sample)
+            self.data_dock.setWidget(self.data)
+            QTimer.singleShot(1500, self.data.rescan)
+        else:
+            self.data = None
+            self.data_dock.setWidget(QLabel("The data index is not available."))
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_dock)
+        self.tabifyDockWidget(self.requests_dock, self.data_dock)
+        self.data_dock.hide()
+
     def _build_actions(self):
         tb = QToolBar("Navigation")
         tb.setMovable(False)
@@ -220,6 +238,21 @@ class MainWindow(QMainWindow):
         tb.addAction(self.a_dashboard)
         tb.addAction(act("Log…", lambda: self.dashboard.quick_log(self.current), "Ctrl+L",
                          "Quick logbook entry: usage, fault, repair, calibration… (Ctrl+L)"))
+        tb.addSeparator()
+        self.a_data = self.data_dock.toggleViewAction()
+        self.a_data.setText("Data")
+        self.a_data.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        tb.addAction(self.a_data)
+        tb.addAction(act("Samples", self.samples_browser, "Ctrl+Shift+S"))
+        self.sample_box = QLineEdit()
+        self.sample_box.setPlaceholderText("Open sample (scan)…")
+        self.sample_box.setToolTip("Type or scan a sample id (Ctrl+K). Handheld QR scanners type "
+                                   "the id and press Enter.")
+        self.sample_box.setMaximumWidth(190)
+        self.sample_box.returnPressed.connect(self._sample_box)
+        tb.addWidget(self.sample_box)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: (self.sample_box.setFocus(),
+                                                                   self.sample_box.selectAll()))
 
         # bare keys act only while the calendar has focus, so the sidebar
         # keeps its own arrow-key navigation
@@ -245,6 +278,11 @@ class MainWindow(QMainWindow):
         dark.setCheckable(True)
         dark.setChecked(self.dark)
         vm.addAction(dark)
+        dm = mb.addMenu("&Data")
+        dm.addAction(act("Samples…", self.samples_browser))
+        dm.addAction(self.data_dock.toggleViewAction())
+        dm.addAction(act("Watched data folders…", self._folders))
+        dm.addAction(act("KherveFitting command…", self._kf_command))
         pm = mb.addMenu("&People")
         pm.addAction(act("People and training…", self._people, "Ctrl+Shift+U"))
         pm.addAction(act("Training expiring soon…", self._expiry))
@@ -587,6 +625,52 @@ class MainWindow(QMainWindow):
                      "instruments")
         self.sync_label.setText("  ·  ".join(parts))
 
+    # -- samples and data ---------------------------------------------------
+    def open_files(self, files):
+        from ..local.launch import default_kfitting_command, open_files
+        cmd = self.settings.value("kfitting_command", "") or default_kfitting_command()
+        try:
+            open_files(cmd, list(files))
+        except OSError as exc:
+            QMessageBox.warning(self, "Open in KherveFitting",
+                                f"Could not run “{cmd}”: {exc}\nSet the command under Data ▸ "
+                                "KherveFitting command.")
+
+    def _kf_command(self):
+        from ..local.launch import default_kfitting_command
+        cur = self.settings.value("kfitting_command", "") or default_kfitting_command()
+        text, ok = QInputDialog.getText(self, "KherveFitting command",
+                                        "Command; {files} becomes the selected files:", text=cur)
+        if ok and text.strip():
+            self.settings.setValue("kfitting_command", text.strip())
+
+    def samples_browser(self):
+        SamplesBrowser(self.svc, self.index, self.open_files, self, self.calendar.names).exec()
+
+    def open_sample(self, sid: str):
+        sid = sid.strip().upper()
+        if sid not in self.svc.samples:
+            QMessageBox.information(self, "Sample", f"No sample {sid} in this facility.")
+            return
+        SamplePage(self.svc, sid, self.index, self.open_files, self, self.calendar.names).exec()
+
+    def _sample_box(self):
+        text = self.sample_box.text().strip()
+        from ..core.samples import SAMPLE_IN_TEXT
+        m = SAMPLE_IN_TEXT.search(text.upper())
+        self.sample_box.clear()
+        if m:
+            self.open_sample(m.group(0))
+        elif text:
+            QMessageBox.information(self, "Sample", f"“{text}” is not a sample id.")
+
+    def _folders(self):
+        if self.index is None or self.data is None:
+            return
+        FoldersDialog(self.svc, self.index, self).exec()
+        self.data._watch()
+        self.data.rescan()
+
     # -- people (local, encrypted) ----------------------------------------
     def _need_store(self) -> bool:
         if self.store is None:
@@ -659,6 +743,8 @@ class MainWindow(QMainWindow):
             self.svc = FacilityService(self.repo)
             self.requests.set_service(self.svc)
             self.dashboard.svc = self.svc
+            if self.data is not None:
+                self.data.svc = self.svc
             self.setWindowTitle(f"{__app_name__} v{__version__} — {self.svc.cfg.facility.name}")
             self._populate_sidebar()
             self.refresh()

@@ -195,6 +195,38 @@ class FacilityService:
             out[inst.id] = InstrumentStatus(st.available, st.text)
         return out
 
+    # -- samples ----------------------------------------------------------
+    @property
+    def samples(self):
+        return self.cfg.samples
+
+    def add_sample(self, name: str, composition: str = "", preparation: str = "", owner: str = "",
+                   parent: str = "", notes: str = "", derived_from_file: str = "",
+                   created: date | None = None):
+        from . import samples as sm
+        created = created or datetime.now(self.tz).date()
+        if parent and parent not in self.samples:
+            raise ValueError(f"unknown parent sample {parent}")
+        sid = sm.next_sample_id(self.samples, created.year)
+        s = sm.Sample(sid, name, composition, preparation, owner, parent, created, notes,
+                      derived_from_file)
+        rel = sm.sample_path(sid)
+        self.repo.write_file(rel, sm.sample_yaml(s))
+        self.repo.commit(f"sample {sid}" + (f" from {parent}" if parent else "")
+                         + f": {name[:50]}", [rel])
+        self.cfg.samples[sid] = s
+        return s
+
+    def update_sample(self, s) -> None:
+        from . import samples as sm
+        rel = sm.sample_path(s.id)
+        self.repo.write_file(rel, sm.sample_yaml(s))
+        self.repo.commit(f"edit sample {s.id}", [rel])
+        self.cfg.samples[s.id] = s
+
+    def bookings_for_sample(self, sid: str) -> list[Booking]:
+        return [b for b in self.bookings() if sid in b.samples]
+
     # -- logbook ----------------------------------------------------------
     def add_log(self, entry: "logbook.LogEntry") -> "logbook.LogEntry":
         if entry.instrument not in self.instruments:

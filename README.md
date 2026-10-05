@@ -168,6 +168,53 @@ instrument per month, and each one is one commit.
   consumable hours against the limit, maintenance due in the next 30 days
   and open faults.
 
+## Samples and the data index (Phase 6)
+
+### Samples
+
+**Data ▸ Samples…** registers samples. Each one is stored in
+`samples/S-YYYY-NNNN.yaml`.
+
+- **Ids** are generated, never typed.
+- **Lineage:** each sample can name the sample it was derived from, so an
+  annealed or reduced specimen traces back to its origin.
+- **Booking links:** the booking dialog autocompletes sample ids, and those
+  links connect each measurement to the material it was made on.
+- **QR labels:** print them on plain A4 (40 per sheet) or on Avery L7160,
+  L7163 and L7651 sheets, skipping any labels already used.
+- **Scanning:** a handheld scanner works like a keyboard. Scan into the
+  **Open sample** box (Ctrl+K) to open that sample's page. Webcam scanning is
+  not built in, because it would add OpenCV to the installer.
+
+### Data index
+
+**Data ▸ Watched data folders…** sets which folders to index; each folder is
+tagged with its instrument. Folders are scanned recursively, in the
+background, on change and every 10 minutes.
+
+- **What is read:** VAMAS block headers (regions, pass energy, dwell, scans,
+  acquisition time, sample label) and the core-level sheets of KherveFitting
+  workbooks. KherveFitting's own importers are tied to its PySide6 window and
+  load whole spectra, so KherveLAB uses small headless header readers instead.
+- **Where it lives:** `~/.khervelab/index.db` (SQLite with FTS5), never the
+  shared repository.
+- **Matching:** files are matched to bookings by instrument and time (from 15
+  minutes before a booking to 60 minutes after it), and from the booking to its
+  sample. A sample id in the file name or in the VAMAS sample label takes
+  precedence. A KherveFitting result workbook inherits the sample of the raw
+  file it shares a name with.
+- **Manual links:** **Link…** sets a file's booking and sample by hand, and
+  later rescans never overwrite that link.
+- **Search** accepts queries such as `Co 2p, 20 eV pass energy, since March`,
+  `on xps`, `S-2026-0012`, `unbooked` (raw files that match no booking) and
+  `results`. In the tests, 3,000 files index and search in well under a second.
+- **Opening files:** **Open in KherveFitting** passes every selected file to
+  the configured command. The default is `open -a KherveFitting {files}` on
+  macOS.
+
+A sample's page lists every measurement made on the sample and on the samples
+derived from it.
+
 ## The facility repository
 
 ```
@@ -176,6 +223,7 @@ instruments/<id>.yaml      one file per instrument: rules, colour, consumables, 
 users/u-0001.yaml          anonymous id, display string, permissions — no names or emails
 bookings/<inst>/<YYYY>/<MM>/<inst>-<YYYY-MM-DD>-<HHMM>.yaml
 logs/<inst>/<YYYY-MM>.yaml logbook entries, appended
+samples/S-YYYY-NNNN.yaml   sample registry
 docs/                      the published calendar (generated)
 .github/ISSUE_TEMPLATE/    the booking-request form
 ```

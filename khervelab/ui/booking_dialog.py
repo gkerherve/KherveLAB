@@ -13,8 +13,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from PyQt6.QtCore import QDateTime, Qt, QTimeZone
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDateTimeEdit, QDialog, QDialogButtonBox,
-                             QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QCompleter, QDateTimeEdit, QDialog,
+                             QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                              QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
 from ..core import schedule
@@ -75,6 +75,9 @@ class BookingDialog(QDialog):
 
         self.samples = QLineEdit(", ".join(booking.samples))
         self.samples.setPlaceholderText("sample ids, comma separated")
+        completer = QCompleter(sorted(svc.samples), self.samples)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.samples.setCompleter(completer)
         form.addRow("Samples", self.samples)
         self.notes = QPlainTextEdit(booking.notes)
         self.notes.setPlaceholderText("No names or emails: this file is shared")

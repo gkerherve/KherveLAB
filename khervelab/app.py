@@ -38,6 +38,14 @@ def main() -> int:
     except Exception as exc:  # no keyring backend, unreadable database...
         store_error = str(exc)
 
+    index = None
+    try:
+        from .local.dataindex import DataIndex
+        from .local.store import default_home
+        index = DataIndex(default_home() / "index.db")
+    except Exception:
+        index = None
+
     repo = None
     path = sys.argv[1] if len(sys.argv) > 1 else settings.value("repo_path", "")
     if path:
@@ -52,7 +60,7 @@ def main() -> int:
                 return 0
             repo = dlg.repo
         try:
-            win = MainWindow(repo, settings, store, store_error)
+            win = MainWindow(repo, settings, store, store_error, index)
         except ConfigError as exc:
             QMessageBox.warning(None, __app_name__, f"The facility repository has an invalid "
                                                     f"file:\n\n{exc}")

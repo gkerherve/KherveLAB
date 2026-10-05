@@ -35,7 +35,8 @@ def window(qtbot, facility, tmp_path):
     from cryptography.fernet import Fernet
     from khervelab.local.store import LocalStore
     store = LocalStore(tmp_path / "local", Fernet.generate_key())
-    w = MainWindow(facility, settings, store)
+    from khervelab.local.dataindex import DataIndex
+    w = MainWindow(facility, settings, store, index=DataIndex(tmp_path / "index.db"))
     qtbot.addWidget(w)
     w.resize(1400, 900)
     w.show()
@@ -227,3 +228,31 @@ def test_quick_log_fault_shows_on_dashboard(window, qtbot):
     text = " ".join(l.text() for c in cards for l in c.findChildren(QLabel))
     assert "down, ion gun replacement" in text
     assert "down, ion gun replacement" in window.details.toPlainText()
+
+
+def test_data_panel_and_sample_page(window, qtbot, tmp_path):
+    import shutil
+    from pathlib import Path
+    from khervelab.ui.samples_ui import SamplePage, SamplesBrowser
+    s = window.svc.add_sample("Pt foil", composition="Pt")
+    folder = tmp_path / "data"
+    folder.mkdir()
+    shutil.copy(Path(__file__).parent / "data" / "Pt4f.vms", folder / f"{s.id}_Pt4f.vms")
+    window.index.add_folder(folder, "xps")
+    window.index.scan(window.svc.tz)
+    window.index.match(window.svc)
+    window.data.query.setText("Pt 4f, 20 eV pass energy")
+    window.data.search()
+    assert window.data.table.rowCount() == 1
+    assert window.data.table.item(0, 4).text() == s.id
+    opened = []
+    window.data.open_files = opened.append
+    window.data.table.selectRow(0)
+    window.data._open()
+    assert opened and opened[0][0].name == f"{s.id}_Pt4f.vms"
+    page = SamplePage(window.svc, s.id, window.index, opened.append)
+    qtbot.addWidget(page)
+    assert page.files.rowCount() == 1 and "Pt foil" in page.view.toPlainText()
+    browser = SamplesBrowser(window.svc, window.index)
+    qtbot.addWidget(browser)
+    assert browser.table.rowCount() == 1
