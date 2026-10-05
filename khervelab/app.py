@@ -68,6 +68,11 @@ def main() -> int:
             continue
         break
     settings.setValue("repo_path", str(repo.path))
+    try:
+        from .notebook import remember
+        remember(repo.path)  # so KherveBook and other notebooks find the same facility
+    except OSError:
+        pass
     win.show()
     QTimer.singleShot(800, win.startup_checks)
     return app.exec()

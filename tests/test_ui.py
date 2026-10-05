@@ -256,3 +256,15 @@ def test_data_panel_and_sample_page(window, qtbot, tmp_path):
     browser = SamplesBrowser(window.svc, window.index)
     qtbot.addWidget(browser)
     assert browser.table.rowCount() == 1
+
+
+def test_report_dialog_previews(window, qtbot):
+    from khervelab.ui.reports_ui import ReportDialog
+    d = next_weekday()
+    add(window, d)
+    dlg = ReportDialog(window.svc, window.store, ["xps"])
+    qtbot.addWidget(dlg)
+    dlg.preset.setCurrentIndex(2)  # this calendar year to date
+    dlg.end.setDate(dlg.end.date().addDays(30))
+    assert dlg.report is not None and dlg.table.rowCount() >= 1
+    assert "booked" in dlg.summary.text()

@@ -40,6 +40,18 @@ class Region:
     source: str = ""
     acquired: datetime | None = None
     sample_label: str = ""
+    source_energy: float | None = None
+    abscissa: str = ""
+    x: list[float] | None = None      # filled only when data is requested
+    y: list[float] | None = None
+
+    def binding_energy(self) -> list[float] | None:
+        """Binding-energy axis for a kinetic-energy scan (BE = hν − KE)."""
+        if self.x is None:
+            return None
+        if self.abscissa.lower().startswith("binding") or not self.source_energy:
+            return list(self.x)
+        return [self.source_energy - v for v in self.x]
 
 
 @dataclass
@@ -99,7 +111,7 @@ class _Lines:
         self.i += n
 
 
-def parse_vamas(path: Path, tz=timezone.utc) -> FileInfo:
+def parse_vamas(path: Path, tz=timezone.utc, with_data: bool = False) -> FileInfo:
     """Block headers of a VAMAS file (inclusion list must be empty, which
     is what CasaXPS, Avantage and KherveFitting write)."""
     t = _Lines(Path(path).read_text(encoding="latin-1"))
@@ -147,7 +159,7 @@ def parse_vamas(path: Path, tz=timezone.utc) -> FileInfo:
                                                       "SIMS", "SIMS energy spec", "SNMS",
                                                       "SNMS energy spec"):
             t.skip(3)              # sputtering ion: species, charge, energy... (per spec)
-        t.float()                  # source energy
+        source_energy = t.float()
         t.float()                  # source strength
         t.skip(2)                  # beam width x, y
         if exp_mode in _MAP_MODES:
@@ -165,8 +177,9 @@ def parse_vamas(path: Path, tz=timezone.utc) -> FileInfo:
         transition = t.next().strip()
         t.next()                   # charge of detected particle
         start = step = None
+        abscissa = ""
         if scan_mode == "REGULAR":
-            t.next()               # abscissa label
+            abscissa = t.next().strip()
             t.next()               # units
             start = t.float()
             step = t.float()
@@ -187,7 +200,13 @@ def parse_vamas(path: Path, tz=timezone.utc) -> FileInfo:
         t.skip(n_future_block)
         n_values = t.int()
         t.skip(2 * n_corr)         # min, max per corresponding variable
-        t.skip(n_values)
+        xs = ys = None
+        if with_data:
+            values = [float(t.next()) for _ in range(n_values)]
+            ys = values[0::max(1, n_corr)]
+            xs = [start + i * step for i in range(len(ys))] if start is not None and step else None
+        else:
+            t.skip(n_values)
         blank = ("", "None", "Not Specified")
         if species not in blank:
             name = norm_region(species if transition in blank else f"{species} {transition}")
@@ -196,7 +215,8 @@ def parse_vamas(path: Path, tz=timezone.utc) -> FileInfo:
         if sample_id in blank:
             sample_id = ""
         info.regions.append(Region(name, pass_energy, dwell, scans, start, step,
-                                   n_values // max(1, n_corr), source, acq, sample_id))
+                                   n_values // max(1, n_corr), source, acq, sample_id,
+                                   source_energy, abscissa, xs, ys))
         info.technique = info.technique or technique
     acquired = [r.acquired for r in info.regions if r.acquired]
     info.acquired = min(acquired) if acquired else None

@@ -283,6 +283,8 @@ class MainWindow(QMainWindow):
         dm.addAction(self.data_dock.toggleViewAction())
         dm.addAction(act("Watched data folders…", self._folders))
         dm.addAction(act("KherveFitting command…", self._kf_command))
+        dm.addSeparator()
+        dm.addAction(act("Facility report…", self._report, "Ctrl+Shift+E"))
         pm = mb.addMenu("&People")
         pm.addAction(act("People and training…", self._people, "Ctrl+Shift+U"))
         pm.addAction(act("Training expiring soon…", self._expiry))
@@ -635,6 +637,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Open in KherveFitting",
                                 f"Could not run “{cmd}”: {exc}\nSet the command under Data ▸ "
                                 "KherveFitting command.")
+
+    def _report(self):
+        from .reports_ui import ReportDialog
+        ReportDialog(self.svc, self.store, sorted(self.visible), self).exec()
 
     def _kf_command(self):
         from ..local.launch import default_kfitting_command

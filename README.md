@@ -5,7 +5,7 @@ Kherve Tools suite. Shared state lives in a Git repository of plain YAML files.
 No server to maintain: every booking change is one readable commit, and the
 history is the audit trail.
 
-It follows the phases of the KherveLab build plan.
+It implements all eight phases of the KherveLab build plan (0–7).
 
 ## Running
 
@@ -214,6 +214,57 @@ background, on change and every 10 minutes.
 
 A sample's page lists every measurement made on the sample and on the samples
 derived from it.
+
+## Reports and suite integration (Phase 7)
+
+**Data ▸ Facility report…** reports on any period. Presets cover the last 12
+months, the calendar year and the academic year (October to October).
+
+The report shows:
+
+- usage per instrument, per group and per user;
+- **utilisation** against bookable hours, which are counted in real elapsed
+  time (a daylight-saving day is 23 or 25 hours long);
+- downtime from blocking faults;
+- the training completed in the period.
+
+On the manager's machine, names and groups come from the encrypted local
+records. Anywhere else, the display strings are used instead.
+
+Export options:
+
+- **Spreadsheet (.xlsx)** for KherveSheet. It has a summary sheet, sheets by
+  group, by user and by month, downtime and training sheets, and the raw
+  booking rows, so the numbers can be re-cut. Charts are native spreadsheet
+  charts drawn from the workbook's own cells.
+- **KherveTeX report (.tex)**: a project folder holding one `.tex` file. Its
+  charts are pgfplots figures built into the source, with no image files to
+  keep alongside. It compiles with tectonic as is. The figures are `figure*`
+  environments, which KherveTeX's importer preserves verbatim, so the charts
+  survive editing in KherveTeX.
+
+### KherveBook and notebooks
+
+`khervelab.notebook` imports no Qt and works in any Python kernel, including
+KherveBook and Jupyter:
+
+```python
+from khervelab import notebook as lab
+hits = lab.find("Co 2p, 20 eV pass energy, since March")   # DataFrame if pandas is present
+region = lab.spectra(hits["path"][0])["Co 2p"]             # .x, .y, .binding_energy()
+lab.sample("S-2026-0012")                                  # lineage, bookings, files
+lab.report(date(2025, 1, 1), date(2026, 1, 1))
+```
+
+It uses the facility that the desktop app last opened, recorded in
+`~/.khervelab/config.json`.
+
+### KherveFitting
+
+- **Opening data:** **Open in KherveFitting**, on any indexed file or on a
+  sample's page, runs the configured command (Data ▸ KherveFitting command…).
+- **Results:** a KherveFitting workbook saved next to the raw file it came
+  from links back to that file's sample as a derived result.
 
 ## The facility repository
 
