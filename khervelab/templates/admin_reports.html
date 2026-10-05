@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Usage and costs</h1>
+<form class="card row" method="get">
+  <div><label>From</label><input type="date" name="from" value="{{ f['from'] }}"></div>
+  <div><label>To (inclusive)</label><input type="date" name="to" value="{{ f['to'] }}"></div>
+  <div><label>User</label><select name="user"><option value="">Everyone</option>{% for u in users %}<option value="{{ u.id }}" {% if f.user|string == u.id|string %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}</select></div>
+  <div><label>Instrument</label><select name="instrument"><option value="">All</option>{% for i in instruments %}<option value="{{ i.id }}" {% if f.instrument|string == i.id|string %}selected{% endif %}>{{ i.name }}</option>{% endfor %}</select></div>
+  <div><label>&nbsp;</label><button class="primary">Show</button></div>
+</form>
+{% set q = 'from=' ~ f['from'] ~ '&to=' ~ f['to'] ~ '&user=' ~ f.user ~ '&instrument=' ~ f.instrument %}
+<div class="card">
+  <b>{{ rep.period() }}</b>: {{ rep.lines|length }} approved bookings, {{ '%.2f' % rep.total_hours }} h, <b>{{ rep.total_cost | money }}</b>.
+  <div class="actions">
+    <a class="btn primary" href="{{ url_for('admin_report_export') }}?{{ q }}&format=pdf">Download PDF statement</a>
+    <a class="btn" href="{{ url_for('admin_report_export') }}?{{ q }}&format=xlsx">Excel</a>
+    <a class="btn" href="{{ url_for('admin_report_export') }}?{{ q }}&format=csv">CSV</a>
+  </div>
+  <p class="small muted">The PDF has one page per user, ready to send, plus a summary when it covers several users.</p>
+</div>
+<h2>By user</h2>
+<div class="table-wrap"><table>
+<tr><th>User</th><th class="num">Bookings</th><th class="num">Hours</th><th class="num">Cost</th></tr>
+{% for t in rep.by_user() %}<tr><td>{{ t.key }}</td><td class="num">{{ t.bookings }}</td><td class="num">{{ '%.2f' % t.hours }}</td><td class="num">{{ t.cost | money }}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">No approved bookings in this period.</td></tr>{% endfor %}
+</table></div>
+<div class="row">
+<div><h2>By group</h2><div class="table-wrap"><table>
+<tr><th>Group</th><th class="num">Hours</th><th class="num">Cost</th></tr>
+{% for t in rep.by_group() %}<tr><td>{{ t.key or '—' }}</td><td class="num">{{ '%.2f' % t.hours }}</td><td class="num">{{ t.cost | money }}</td></tr>{% endfor %}
+</table></div></div>
+<div><h2>By instrument</h2><div class="table-wrap"><table>
+<tr><th>Instrument</th><th class="num">Hours</th><th class="num">Cost</th></tr>
+{% for t in rep.by_instrument() %}<tr><td>{{ t.key }}</td><td class="num">{{ '%.2f' % t.hours }}</td><td class="num">{{ t.cost | money }}</td></tr>{% endfor %}
+</table></div></div>
+</div>
+<h2>Bookings</h2>
+<div class="table-wrap"><table>
+<tr><th>User</th><th>Instrument</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Cost</th></tr>
+{% for l in rep.lines %}<tr><td>{{ l.user }}</td><td>{{ l.instrument }}</td><td>{{ l.start | when }}</td><td>{{ l.end | when }}</td><td class="num">{{ '%.2f' % l.hours }}</td><td class="num">{{ l.rate | money }}</td><td class="num">{{ l.cost | money }}</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

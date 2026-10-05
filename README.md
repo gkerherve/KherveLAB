@@ -1,328 +1,109 @@
 # KherveLAB
 
-Instrument booking and facility management for shared research labs, part of the
-Kherve Tools suite. Shared state lives in a Git repository of plain YAML files.
-No server to maintain: every booking change is one readable commit, and the
-history is the audit trail.
+Instrument booking for a single research lab. One computer in the lab runs
+KherveLAB. People open it in a web browser, either on that computer or from
+their own machine at its network address. They log in with their own account
+and book time on an instrument. Depending on how the lab manager set up that
+instrument, the booking is approved at once or waits for the manager. Each
+instrument has hourly rates, so the manager can produce a usage and cost
+statement for any user and period whenever one is asked for.
 
-It implements all eight phases of the KherveLab build plan (0–7).
+It is part of the Kherve Tools suite. An earlier, department-wide design is
+kept under the git tag `v0.7-department`.
 
-## Running
+## Start it
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 .venv/bin/python KherveLAB.py
 ```
 
-On first launch, choose one of these:
-
-- **Create a new facility.** Copies the bundled template, which holds the full
-  Department of Materials instrument catalogue, into a new Git repository. A
-  remote URL is optional.
-- **Open an existing working copy.**
-- **Clone a facility repository** from a URL.
-
-You can also pass a facility folder on the command line: `python KherveLAB.py ~/KherveLAB/facility`.
-
-## What it does
-
-- **Week view**: days across, 30-minute rows, with the current time marked.
-  Bookings for several instruments sit side by side.
-- **Day view**: one column per selected instrument, so you can see what is running today.
-- **Month view**: a density overview. Click a day to open it in Day view.
-- **Creating and editing**: drag on an empty slot to create a booking. Drag a
-  booking to move it (also to another day, or to another instrument in Day view),
-  drag its bottom edge to resize it, and double-click it to edit. Right-click a
-  booking to delete it.
-- **Rules engine** (`khervelab/core/schedule.py`): checks bookable hours,
-  minimum and maximum duration, slot snapping, overlap, the advance window,
-  the per-user concurrent limit and training permissions. Only hard clashes
-  block a booking. Warnings can be overridden, and an override is recorded in
-  the booking file (`override: [permission]`).
-- **Recurring bookings** are expanded into individual files in one commit.
-  They are never stored as a rule.
-- **Sync**: pulls and pushes every 5 minutes, and 3 seconds after a change.
-  When offline, commits queue locally and the status bar shows how many are
-  waiting.
-- **Conflicts**: if two people edit the same slot file, you get a dialog that
-  shows both versions side by side. If two different files overlap after a
-  merge, you get a dialog to keep one of them. In both cases the
-  earliest-created booking is the default.
-- **Keyboard**: ←/→ move the date, T jumps to today, and 1/2/3 switch views
-  (when the calendar has focus). Ctrl+N creates a new booking and Ctrl+R syncs.
-
-## Published calendar (Phase 2)
-
-The app regenerates a static site in `docs/` and commits it. This happens 3
-seconds after any change, or when you click **Publish now**.
-
-To serve the site, turn on GitHub Pages for the facility repository with
-**Deploy from a branch ▸ `main` ▸ `/docs`**. GitHub Pages can only serve a
-branch from its root or from `/docs`, which is why the folder is not called
-`site/`.
-
-The site contains:
-
-- `index.html`, the whole facility, with instrument filters;
-- `<instrument>/index.html`, a bookmarkable page for each instrument;
-- `bookings.json`, the published data;
-- `calendar.ics` for the whole facility and one for each instrument. Subscribe
-  to them in Outlook with **Add calendar ▸ Subscribe from web**.
-
-FullCalendar 6 (MIT) is vendored, and the data is also written to
-`assets/data.js`. The page therefore works from GitHub Pages and from a local
-`file://` path, with no CDN and no server.
-
-Only the instrument, the time, the anonymous display string and the kind of
-booking are published. Notes and samples never are.
-
-## Booking requests (Phase 3)
-
-To turn requests on:
-
-1. Set `github: owner/repo` in `facility.yaml`.
-2. Store a fine-grained token with **Issues: read and write** permission
-   (File ▸ GitHub token…). It is kept in the system keychain.
-
-On the published calendar, **Request a slot** opens a pre-filled GitHub issue
-form (`.github/ISSUE_TEMPLATE/booking-request.yml`). Selecting a time on an
-instrument's page pre-fills the date, the start and the duration.
-
-The app polls open issues labelled `booking-request` every 5 minutes. It parses
-each one, accepting hand-edited bodies too, and runs the booking rules against
-the live calendar. The **Requests** panel then lets you:
-
-- **Approve**: books the slot, comments the confirmed slot and closes the issue;
-- **Decline**: comments your reason and closes the issue;
-- **Propose another time**: comments the first free slot of the same length.
-
-GitHub users are mapped to anonymous user ids through the `github` field of
-`users/*.yaml`. An unknown author prompts you to create a user.
-
-The GitHub client uses only the standard library. ETags keep repeated polls
-off the rate limit.
-
-## Training records (Phase 4)
-
-**People ▸ People and training…** keeps each person's personal details and
-training records. All of it stays in a SQLite database on this computer:
-`~/.khervelab/local.db`, or the folder set in `KHERVELAB_HOME`.
-
-What is stored where:
-
-- **On this computer only.** The name, email, department, group, supervisor,
-  training dates, assessor, assessment notes and evidence files. Each of these
-  columns is encrypted with Fernet. The key is created on first run and kept
-  in the system keychain. Evidence files are stored encrypted in
-  `~/.khervelab/evidence/`.
-- **In the repository.** Only the anonymous id, the display string, the
-  GitHub username and the list of instruments the person may book.
-
-Saving a training record updates that list and commits it. Training that
-lapses is revoked automatically at start-up. The desktop app shows real names,
-because it resolves the anonymous ids locally. Nothing else can.
-
-The **People** menu also has:
-
-- **Training expiring soon**: everyone whose training lapses in the next 90
-  days, with a reminder-email draft (all recipients in BCC);
-- **Export record (PDF)**: one person's full record, for an audit or a
-  leaving researcher;
-- **Back up / Restore**: a zip holding the database, the evidence files and
-  the key. The key is wrapped with your passphrase (PBKDF2-SHA256), so the
-  backup also restores on a new machine.
-
-The backup prompt is insistent on purpose. It appears every 10th launch, and
-whenever the last backup is more than 30 days old.
-
-## Instrument logbook (Phase 5)
-
-Press **Log…** (Ctrl+L) to open a quick-entry dialog with the instrument
-already selected. Entry types:
-
-- usage (unbooked hours)
-- fault
-- repair
-- calibration
-- consumable change
-- bake-out
-- maintenance done
-- counter correction
-- note
-
-Entries are appended to `logs/<instrument>/<YYYY-MM>.yaml`, one file per
-instrument per month, and each one is one commit.
-
-- **Consumable counters** add up the hours since the consumable was last
-  changed. They count booked time already elapsed, logged usage and manual
-  corrections. Logging 4 h of usage advances the X-ray source counter by 4 h.
-  Each counter turns amber at `warn_at` and red at the limit.
-- **Maintenance due dates** come from the last completed entry for each task
-  in `instruments/*.yaml`.
-- **Faults** move from open to in progress to resolved, with notes at each
-  step. While a fault marked *blocking* is open, new bookings are refused,
-  apart from maintenance. The public calendar then shows a status line such
-  as "XPS — down, ion gun replacement, back Thursday 8 Oct".
-- **Dashboard** (Ctrl+D) shows one card per instrument: its status,
-  consumable hours against the limit, maintenance due in the next 30 days
-  and open faults.
-
-## Samples and the data index (Phase 6)
-
-### Samples
-
-**Data ▸ Samples…** registers samples. Each one is stored in
-`samples/S-YYYY-NNNN.yaml`.
-
-- **Ids** are generated, never typed.
-- **Lineage:** each sample can name the sample it was derived from, so an
-  annealed or reduced specimen traces back to its origin.
-- **Booking links:** the booking dialog autocompletes sample ids, and those
-  links connect each measurement to the material it was made on.
-- **QR labels:** print them on plain A4 (40 per sheet) or on Avery L7160,
-  L7163 and L7651 sheets, skipping any labels already used.
-- **Scanning:** a handheld scanner works like a keyboard. Scan into the
-  **Open sample** box (Ctrl+K) to open that sample's page. Webcam scanning is
-  not built in, because it would add OpenCV to the installer.
-
-### Data index
-
-**Data ▸ Watched data folders…** sets which folders to index; each folder is
-tagged with its instrument. Folders are scanned recursively, in the
-background, on change and every 10 minutes.
-
-- **What is read:** VAMAS block headers (regions, pass energy, dwell, scans,
-  acquisition time, sample label) and the core-level sheets of KherveFitting
-  workbooks. KherveFitting's own importers are tied to its PySide6 window and
-  load whole spectra, so KherveLAB uses small headless header readers instead.
-- **Where it lives:** `~/.khervelab/index.db` (SQLite with FTS5), never the
-  shared repository.
-- **Matching:** files are matched to bookings by instrument and time (from 15
-  minutes before a booking to 60 minutes after it), and from the booking to its
-  sample. A sample id in the file name or in the VAMAS sample label takes
-  precedence. A KherveFitting result workbook inherits the sample of the raw
-  file it shares a name with.
-- **Manual links:** **Link…** sets a file's booking and sample by hand, and
-  later rescans never overwrite that link.
-- **Search** accepts queries such as `Co 2p, 20 eV pass energy, since March`,
-  `on xps`, `S-2026-0012`, `unbooked` (raw files that match no booking) and
-  `results`. In the tests, 3,000 files index and search in well under a second.
-- **Opening files:** **Open in KherveFitting** passes every selected file to
-  the configured command. The default is `open -a KherveFitting {files}` on
-  macOS.
-
-A sample's page lists every measurement made on the sample and on the samples
-derived from it.
-
-## Reports and suite integration (Phase 7)
-
-**Data ▸ Facility report…** reports on any period. Presets cover the last 12
-months, the calendar year and the academic year (October to October).
-
-The report shows:
-
-- usage per instrument, per group and per user;
-- **utilisation** against bookable hours, which are counted in real elapsed
-  time (a daylight-saving day is 23 or 25 hours long);
-- downtime from blocking faults;
-- the training completed in the period.
-
-On the manager's machine, names and groups come from the encrypted local
-records. Anywhere else, the display strings are used instead.
-
-Export options:
-
-- **Spreadsheet (.xlsx)** for KherveSheet. It has a summary sheet, sheets by
-  group, by user and by month, downtime and training sheets, and the raw
-  booking rows, so the numbers can be re-cut. Charts are native spreadsheet
-  charts drawn from the workbook's own cells.
-- **KherveTeX report (.tex)**: a project folder holding one `.tex` file. Its
-  charts are pgfplots figures built into the source, with no image files to
-  keep alongside. It compiles with tectonic as is. The figures are `figure*`
-  environments, which KherveTeX's importer preserves verbatim, so the charts
-  survive editing in KherveTeX.
-
-### KherveBook and notebooks
-
-`khervelab.notebook` imports no Qt and works in any Python kernel, including
-KherveBook and Jupyter:
-
-```python
-from khervelab import notebook as lab
-hits = lab.find("Co 2p, 20 eV pass energy, since March")   # DataFrame if pandas is present
-region = lab.spectra(hits["path"][0])["Co 2p"]             # .x, .y, .binding_energy()
-lab.sample("S-2026-0012")                                  # lineage, bookings, files
-lab.report(date(2025, 1, 1), date(2026, 1, 1))
-```
-
-It uses the facility that the desktop app last opened, recorded in
-`~/.khervelab/config.json`.
-
-### KherveFitting
-
-- **Opening data:** **Open in KherveFitting**, on any indexed file or on a
-  sample's page, runs the configured command (Data ▸ KherveFitting command…).
-- **Results:** a KherveFitting workbook saved next to the raw file it came
-  from links back to that file's sample as a derived result.
-
-## The facility repository
+KherveLAB prints two addresses and opens a browser on the first:
 
 ```
-facility.yaml              name, organisation, timezone
-instruments/<id>.yaml      one file per instrument: rules, colour, consumables, maintenance
-users/u-0001.yaml          anonymous id, display string, permissions — no names or emails
-bookings/<inst>/<YYYY>/<MM>/<inst>-<YYYY-MM-DD>-<HHMM>.yaml
-logs/<inst>/<YYYY-MM>.yaml logbook entries, appended
-samples/S-YYYY-NNNN.yaml   sample registry
-docs/                      the published calendar (generated)
-.github/ISSUE_TEMPLATE/    the booking-request form
+  on this PC:     http://localhost:8080
+  on the network: http://192.168.1.23:8080   (give this address to users)
 ```
 
-A booking's filename encodes its instrument and its local start time. Two people
-booking the same slot therefore edit the same file, and Git raises a real conflict.
-A commit is refused if any staged file contains something that looks like an
-email address.
+The first visit asks you to create the lab manager's account. It can also add
+some starting instruments for you.
 
-## Instrument catalogue
+Options:
 
-The template has 48 instruments (`khervelab/data/facility_template/instruments/`),
-generated from `tools/build_catalogue.py`.
+- `--port 8080`: the port to serve on.
+- `--data FOLDER`: where the data lives. The default is `~/KherveLAB-data`.
+- `--host 127.0.0.1`: accept connections from this computer only.
+- `--no-browser`: do not open a browser window at start.
 
-- **Listed by the Department of Materials** (`source: materials-website`):
-  - Advanced Photoelectron Spectroscopy Laboratory: XPS, NAP-XPS with UPS and LEED.
-  - EM facility: Zeiss Gemini 1525 and Sigma 300, FEI Quanta ESEM, JEOL 6010LA,
-    TFS Helios 5 CX, Zeiss Auriga, JEOL 2100Plus and 2100F, TFS Talos.
-  - Cryo microscopy, I(CM)²: TFS Spectra 300, Helios Hydra PFIB, Cameca LEAP 5000 XR.
-  - Surface analysis: IONTOF ToF-SIMS/LEIS, FIB-SIMS, Zygo NewView 200.
-  - XRD: 2× Empyrean, 2× X'Pert MRD, X'Pert MPD, 2× Bruker D2.
-  - Thermal analysis: Netzsch STA 449 C and F5, DIL 402 E, plus the CASC
-    DTA/TGA, laser flash and dilatometer.
-  - AFM: Bruker Innova, Asylum MFP-3D.
-  - Royce: confocal microscope, electrochemical MS, sputter system.
-- **Added** (`source: added`): BET gas sorption, Raman, FTIR, UV-Vis-NIR,
-  ellipsometer, nanoindenter, universal testing machine, potentiostat/EIS,
-  stylus profilometer, optical microscope, Ar glovebox, sputter coater and PIPS.
+All data is kept in one SQLite file, `lab.db`, in the data folder. **Settings
+▸ Download a backup** saves a copy of it.
 
-Edit the catalogue in `tools/build_catalogue.py`, then run
-`python tools/build_catalogue.py`. To change a facility that is already
-running, edit its own `instruments/*.yaml` files.
+## For users
+
+1. **Create an account** with your name, email, group and rate category. When
+   the lab manager has switched account approval on, you can log in only once
+   they approve you.
+2. **Book**: open an instrument, drag across its calendar, add a purpose and
+   press **Book** (or **Request approval**). The form shows your hourly rate
+   and the estimated cost before you book.
+3. **My bookings** lists your bookings with their status and cost, and this
+   month's total. You can cancel a booking until it starts.
+
+## For the lab manager
+
+- **Requests** shows the bookings and new accounts waiting for you. Approve or
+  reject each one, with an optional note to the user.
+- **Instruments & rates**: for each instrument you set:
+  - **Approval**: one of three modes.
+    - *Automatic*: every booking is approved at once.
+    - *Automatic for trained users*: people you have marked as trained book at
+      once; everyone else waits for you.
+    - *Manual*: every booking waits for you.
+  - **Hourly rate for each user category.** The default categories are
+    Internal, External academic and Industry; you can rename them in Settings.
+    A booking keeps the rate in force when it was made, so changing a rate
+    never rewrites past charges.
+  - **Booking rules**: slot length, shortest and longest booking, how far
+    ahead people can book, opening hours (or around the clock, for overnight
+    runs) and weekends.
+  - **Trained users.**
+- **Users**: approve, disable or edit accounts, change a user's rate category,
+  mark training, reset a password, or make someone a co-manager.
+- **All bookings**: filter by date, instrument, user and status, and cancel
+  any booking.
+- **Reports**: usage and costs for any period. You can filter by user or
+  instrument, and see totals by user, group and instrument. Download formats:
+  - **PDF**: one statement page per user, ready to send, plus a summary page;
+  - **Excel**;
+  - **CSV**.
+
+  Only approved bookings are charged, by the time actually elapsed (a booking
+  across a clock change is billed for the real hours).
+- **Settings**: lab name, currency, time zone, rate categories, whether new
+  accounts need approval, and whether users see who booked each slot. Backups
+  are downloaded from here too.
+
+The lab manager is held only to the hard rules (no overlaps). This lets them
+block an instrument for maintenance, or book at any hour.
+
+## Security notes
+
+- **Passwords** are stored as salted hashes.
+- **Sessions** are signed cookies that last 12 hours.
+- **Forms** carry a token against cross-site request forgery.
+- **Network**: KherveLAB is meant for a lab's local network. Do not expose it
+  directly to the internet. If people need it from outside, put it behind the
+  institution's VPN.
 
 ## Tests
 
 ```bash
+.venv/bin/pip install pytest
 .venv/bin/python -m pytest -q
 ```
 
-Everything in `khervelab/core/` is pure Python with no Qt, and is tested
-headlessly. The tests cover:
-
-- every booking rule, including both daylight-saving transitions;
-- two working copies sharing one bare repository, including real conflicts.
-
-pytest-qt tests cover the window, all three views, drag-to-create and the
-booking dialog.
-
 ## Licence
 
-GPL v3 or later. © 2026 Gwilherm Kerherve.
+GPL v3 or later. © 2026 Gwilherm Kerherve. FullCalendar (MIT) is vendored in
+`khervelab/static/vendor/`.

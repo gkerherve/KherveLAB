@@ -5,33 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "khervelab"
 dynamic = ["version"]
-description = "Instrument booking and facility management for shared research labs, kept in Git."
+description = "Instrument booking, approval and cost reports for a single research lab."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Gwilherm Kerherve" }]
-dependencies = [
-    "PyQt6>=6.5",
-    "ruamel.yaml>=0.18",
-    "GitPython>=3.1",
-    "Jinja2>=3.1",
-    "cryptography>=42",
-    "keyring>=24",
-    "reportlab>=4",
-    "openpyxl>=3.1",
-]
+dependencies = ["Flask>=3.0", "waitress>=3.0", "reportlab>=4", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-qt>=4.4", "pyinstaller>=6.0"]
+dev = ["pytest>=8"]
 
-[project.gui-scripts]
-khervelab = "khervelab.app:main"
+[project.scripts]
+khervelab = "khervelab.server:main"
 
 [tool.setuptools.packages.find]
 include = ["khervelab*"]
 
 [tool.setuptools.package-data]
-khervelab = ["data/facility_template/**/*", "publish/templates/*", "publish/static/**/*"]
+khervelab = ["templates/*.html", "static/*", "static/vendor/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "khervelab.__version__" }

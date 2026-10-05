@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<div class="card narrow">
+<h1>{{ lab_name }}</h1>
+<p class="muted">Log in to book instrument time.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <label>Username</label><input type="text" name="username" required autofocus autocomplete="username">
+  <label>Password</label><input type="password" name="password" required autocomplete="current-password">
+  <div class="actions"><button class="primary">Log in</button> <a href="{{ url_for('register') }}">Create an account</a></div>
+</form>
+</div>
+{% endblock %}

@@ -1,5 +1,3 @@
-import sys
+from .server import main
 
-from .app import main
-
-sys.exit(main())
+main()

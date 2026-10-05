@@ -1,46 +1,61 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
-from pathlib import Path
+import re
 
 import pytest
 
-from khervelab.core.repo import FacilityRepo
-
-
-@pytest.fixture(autouse=True)
-def _isolated_git(tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.setenv("GIT_AUTHOR_NAME", "Test User")
-    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.invalid")
-    monkeypatch.setenv("GIT_COMMITTER_NAME", "Test User")
-    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
+from khervelab import db
+from khervelab.web import create_app
 
 
 @pytest.fixture
-def facility(tmp_path) -> FacilityRepo:
-    """A throwaway facility working copy with no remote."""
-    return FacilityRepo.create(tmp_path / "facility", name="Test facility")
+def app(tmp_path):
+    a = create_app(tmp_path / "data")
+    a.config["TESTING"] = True
+    return a
 
 
 @pytest.fixture
-def two_copies(tmp_path):
-    """Two working copies sharing one bare repository."""
-    bare = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "--bare", "-q", "-b", "main", str(bare)], check=True)
-    a = FacilityRepo.create(tmp_path / "a", name="Shared", remote_url=str(bare))
-    assert a.push()
-    b = FacilityRepo.clone(str(bare), tmp_path / "b")
-    return a, b
+def conn(tmp_path):
+    c = db.connect(tmp_path / "lab.db")
+    db.init(c)
+    yield c
+    c.close()
+
+
+class Browser:
+    """A test client that carries the CSRF token like a real form would."""
+
+    def __init__(self, client):
+        self.c = client
+
+    def token(self) -> str:
+        with self.c.session_transaction() as s:
+            if "csrf" not in s:
+                s["csrf"] = "test-token"
+            return s["csrf"]
+
+    def get(self, url, **kw):
+        return self.c.get(url, **kw)
+
+    def post(self, url, data=None, **kw):
+        data = dict(data or {})
+        data.setdefault("csrf", self.token())
+        return self.c.post(url, data=data, **kw)
+
+    def text(self, url) -> str:
+        return self.c.get(url, follow_redirects=True).get_data(as_text=True)
 
 
 @pytest.fixture
-def template_copy(tmp_path) -> Path:
-    from khervelab.core.repo import TEMPLATE
-    dst = tmp_path / "plain"
-    shutil.copytree(TEMPLATE, dst)
-    return dst
+def browser(app):
+    return Browser(app.test_client())
+
+
+@pytest.fixture
+def new_browser(app):
+    return lambda: Browser(app.test_client())
+
+
+def flashed(html: str) -> list[str]:
+    return re.findall(r'<div class="flash \w+">(.*?)</div>', html, re.S)

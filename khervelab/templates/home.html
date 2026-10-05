@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Instruments{% endblock %}
+{% block content %}
+<h1>Instruments</h1>
+{% if not instruments %}
+  <div class="card">No instruments yet.{% if me.role == 'admin' %} <a href="{{ url_for('admin_instrument') }}">Add the first one</a>.{% endif %}</div>
+{% endif %}
+<div class="grid">
+{% for i in instruments %}
+  <a class="card inst" style="--c: {{ i.colour }}; color:inherit; text-decoration:none" href="{{ url_for('instrument', iid=i.id) }}">
+    <h3>{{ i.name }}</h3>
+    <div class="muted small">{{ i.description }}</div>
+    <div class="small" style="margin-top:8px">
+      {{ my_rates[i.id] | money }}/h for you
+      · {% if me.role == 'admin' or i.approval == 'auto' or (i.approval == 'trained' and i.id in trained) %}books instantly{% else %}needs approval{% endif %}
+    </div>
+  </a>
+{% endfor %}
+</div>
+<h2>My upcoming bookings</h2>
+{% if mine %}
+<div class="table-wrap"><table>
+<tr><th>Instrument</th><th>From</th><th>To</th><th>Status</th></tr>
+{% for b in mine %}
+<tr><td><a href="{{ url_for('instrument', iid=b.instrument_id) }}">{{ b.instrument }}</a></td><td>{{ b.start | when }}</td><td>{{ b.end | when }}</td><td><span class="status {{ b.status }}">{{ b.status }}</span></td></tr>
+{% endfor %}
+</table></div>
+{% else %}<p class="muted">Nothing booked. Pick an instrument above.</p>{% endif %}
+{% endblock %}

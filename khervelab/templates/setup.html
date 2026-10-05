@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Set up{% endblock %}
+{% block content %}
+<div class="card" style="max-width:640px;margin:20px auto">
+<h1>Set up your lab</h1>
+<p class="muted">Create the lab manager's account. People will register their own accounts afterwards.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="row">
+    <div><label>Lab name</label><input type="text" name="lab_name" required value="{{ form.get('lab_name', '') }}" placeholder="Advanced Photoelectron Spectroscopy Lab"></div>
+    <div><label>Currency symbol</label><input type="text" name="currency" value="{{ form.get('currency', '£') }}"></div>
+  </div>
+  <h2>Administrator</h2>
+  <div class="row">
+    <div><label>Full name</label><input type="text" name="full_name" required value="{{ form.get('full_name', '') }}"></div>
+    <div><label>Email</label><input type="email" name="email" value="{{ form.get('email', '') }}"></div>
+  </div>
+  <div class="row">
+    <div><label>Username</label><input type="text" name="username" required value="{{ form.get('username', '') }}" autocomplete="username"></div>
+    <div><label>Password (8+ characters)</label><input type="password" name="password" required autocomplete="new-password"></div>
+    <div><label>Repeat password</label><input type="password" name="password2" required autocomplete="new-password"></div>
+  </div>
+  <h2>Start with some instruments (optional)</h2>
+  <p class="muted small">You can edit, add or remove instruments and set their hourly rates afterwards.</p>
+  {% for ex in examples %}
+    <label class="check"><input type="checkbox" name="ex_{{ ex[0] }}"> <b>{{ ex[0] }}</b> <span class="muted">— {{ ex[1] }}</span></label>
+  {% endfor %}
+  <div class="actions"><button class="primary">Create the lab</button></div>
+</form>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>Username</th><th>Email</th><th>Group</th><th>Category</th><th>Role</th><th>Status</th></tr>
+{% for u in users %}
+<tr><td><a href="{{ url_for('admin_user', uid=u.id) }}">{{ u.full_name }}</a></td><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.group_name }}</td><td>{{ u.category }}</td><td>{{ u.role }}</td><td><span class="status {{ u.status }}">{{ u.status }}</span></td></tr>
+{% endfor %}
+</table></div>
+{% endblock %}

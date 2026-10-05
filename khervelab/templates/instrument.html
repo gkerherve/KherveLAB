@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ inst.name }}{% endblock %}
+{% block content %}
+<h1><span style="color:{{ inst.colour }}">■</span> {{ inst.name }}</h1>
+<div class="split">
+  <div id="calendar"></div>
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0">Book time</h2>
+      {% if not inst.active %}<p class="flash error">This instrument is not available for booking.</p>{% endif %}
+      <p class="small muted">Drag across the calendar to choose a slot, or type the times.</p>
+      <form method="post" action="{{ url_for('book') }}" id="bookform">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="instrument_id" value="{{ inst.id }}">
+        <label>Start</label><input type="datetime-local" name="start" id="start" required step="{{ inst.slot_minutes * 60 }}">
+        <label>End</label><input type="datetime-local" name="end" id="end" required step="{{ inst.slot_minutes * 60 }}">
+        <label>Purpose / samples</label><textarea name="purpose" placeholder="What you will measure"></textarea>
+        <p class="small" id="estimate"></p>
+        <div class="actions"><button class="primary">
+          {% if me.role == 'admin' or inst.approval == 'auto' or (inst.approval == 'trained' and trained) %}Book{% else %}Request approval{% endif %}
+        </button></div>
+      </form>
+    </div>
+    <div class="card small">
+      <dl class="facts">
+        <dt>Your rate</dt><dd>{{ my_rate | money }} per hour ({{ me.category or 'no category' }})</dd>
+        <dt>Approval</dt><dd>{{ approval_labels[inst.approval] }}{% if inst.approval == 'trained' %} — you are {% if not trained %}not yet {% endif %}listed as trained{% endif %}</dd>
+        <dt>Hours</dt><dd>{% if inst.open_time == '00:00' and inst.close_time in ('24:00','23:59') %}around the clock{% else %}{{ inst.open_time }}–{{ inst.close_time }}{% endif %}, {{ 'every day' if inst.weekends else 'weekdays' }}</dd>
+        <dt>Length</dt><dd>{{ inst.min_minutes }}–{{ inst.max_minutes }} min, in {{ inst.slot_minutes }}-min slots</dd>
+        <dt>Ahead</dt><dd>up to {{ inst.max_days_ahead }} days</dd>
+        {% if inst.location %}<dt>Where</dt><dd>{{ inst.location }}</dd>{% endif %}
+      </dl>
+      {% if inst.description %}<p>{{ inst.description }}</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/fullcalendar.min.js') }}"></script>
+<script>
+(function () {
+  var rate = {{ my_rate | tojson }}, currency = {{ currency | tojson }};
+  var allDay = {{ (inst.open_time == '00:00' and inst.close_time in ('24:00','23:59')) | tojson }};
+  var startEl = document.getElementById('start'), endEl = document.getElementById('end');
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function local(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function estimate() {
+    var s = new Date(startEl.value), e = new Date(endEl.value), out = document.getElementById('estimate');
+    if (isNaN(s) || isNaN(e) || e <= s) { out.textContent = ''; return; }
+    var h = (e - s) / 3600000;
+    out.textContent = h.toFixed(2) + ' h · estimated cost ' + currency + (h * rate).toFixed(2);
+  }
+  startEl.addEventListener('change', estimate); endEl.addEventListener('change', estimate);
+  var narrow = window.matchMedia('(max-width: 700px)').matches;
+  var cal = new FullCalendar.Calendar(document.getElementById('calendar'), {
+    initialView: narrow ? 'timeGridDay' : 'timeGridWeek',
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek,dayGridMonth' },
+    buttonText: { today: 'Today', day: 'Day', week: 'Week', month: 'Month' },
+    {% if request.args.get('date') %}initialDate: {{ request.args.get('date') | tojson }},{% endif %}
+    firstDay: 1, nowIndicator: true, allDaySlot: false, height: 'auto',
+    slotDuration: { minutes: {{ inst.slot_minutes if inst.slot_minutes <= 60 else 60 }} },
+    snapDuration: { minutes: {{ inst.slot_minutes }} },
+    scrollTime: '07:00:00',
+    slotMinTime: allDay ? '00:00:00' : '{{ inst.open_time }}:00',
+    slotMaxTime: allDay ? '24:00:00' : '{{ "24:00" if inst.close_time == "24:00" else inst.close_time }}:00',
+    hiddenDays: {{ '[]' if inst.weekends else '[0, 6]' }},
+    slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+    eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+    selectable: true, selectMirror: true, selectOverlap: false,
+    select: function (info) {
+      startEl.value = local(info.start); endEl.value = local(info.end); estimate();
+      document.getElementById('bookform').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    },
+    events: '{{ url_for("events", instrument=inst.id) }}'
+  });
+  cal.render();
+})();
+</script>
+{% endblock %}

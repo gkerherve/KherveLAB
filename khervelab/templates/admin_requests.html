@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Requests{% endblock %}
+{% block content %}
+<h1>Waiting for your decision</h1>
+<h2>Bookings ({{ bookings|length }})</h2>
+{% if bookings %}
+<div class="table-wrap"><table>
+<tr><th>Instrument</th><th>Who</th><th>When</th><th>Purpose</th><th class="num">Cost</th><th>Decision</th></tr>
+{% for b in bookings %}
+<tr>
+  <td>{{ b.instrument }}</td>
+  <td>{{ b.full_name }}<br><span class="small muted">{{ b.group_name }}{% if b.group_name %} · {% endif %}{{ b.category }}{% if not b.trained %} · <b>not listed as trained</b>{% endif %}</span></td>
+  <td>{{ b.start | when }}<br><span class="small muted">to {{ b.end | when }}</span></td>
+  <td class="small">{{ b.purpose }}</td>
+  <td class="num">{{ cost(b) | money }}</td>
+  <td>
+    <form method="post" action="{{ url_for('decide', bid=b.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="text" name="note" placeholder="Note to the user (optional)" style="margin-bottom:6px">
+      <button class="primary" name="decision" value="approve">Approve</button>
+      <button class="danger" name="decision" value="reject">Reject</button>
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</table></div>
+{% else %}<p class="muted">No bookings waiting.</p>{% endif %}
+
+<h2>New accounts ({{ accounts|length }})</h2>
+{% if accounts %}
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>Username</th><th>Email</th><th>Group</th><th>Category</th><th>Since</th><th></th></tr>
+{% for u in accounts %}
+<tr><td>{{ u.full_name }}</td><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.group_name }}</td><td>{{ u.category }}</td><td class="small">{{ u.created | when }}</td>
+<td><form method="post" action="{{ url_for('decide_account', uid=u.id) }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <button class="primary" name="decision" value="approve">Approve</button>
+  <button class="danger" name="decision" value="refuse">Refuse</button>
+  <a class="small" href="{{ url_for('admin_user', uid=u.id) }}">Edit</a></form></td></tr>
+{% endfor %}
+</table></div>
+{% else %}<p class="muted">No accounts waiting.</p>{% endif %}
+{% endblock %}

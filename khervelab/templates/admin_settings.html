@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="row">
+    <div><label>Lab name</label><input type="text" name="lab_name" value="{{ s.lab_name }}"></div>
+    <div><label>Currency symbol</label><input type="text" name="currency" value="{{ s.currency }}"></div>
+    <div><label>Time zone</label><input type="text" name="timezone" value="{{ s.timezone }}"></div>
+  </div>
+  <label>Rate categories (one per line)</label><textarea name="categories" rows="4">{{ s.categories }}</textarea>
+  <label class="check"><input type="checkbox" name="account_approval" {% if s.account_approval == '1' %}checked{% endif %}> New accounts wait for my approval</label>
+  <label class="check"><input type="checkbox" name="show_names" {% if s.show_names == '1' %}checked{% endif %}> Logged-in users see who booked each slot</label>
+  <div class="actions"><button class="primary">Save settings</button></div>
+</form>
+<div class="card">
+  <h2 style="margin-top:0">Backup</h2>
+  <p>Everything (users, instruments, rates, bookings) is in one file: <code>{{ data_dir }}/lab.db</code>.</p>
+  <a class="btn" href="{{ url_for('admin_backup') }}">Download a backup now</a>
+</div>
+{% endblock %}

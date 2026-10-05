@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Instruments and rates{% endblock %}
+{% block content %}
+<h1>Instruments and rates</h1>
+<div class="actions" style="margin-top:0;margin-bottom:14px"><a class="btn primary" href="{{ url_for('admin_instrument') }}">Add an instrument</a></div>
+<div class="table-wrap"><table>
+<tr><th>Instrument</th><th>Approval</th>{% for c in categories %}<th class="num">{{ c }} ({{ currency }}/h)</th>{% endfor %}<th>Available</th></tr>
+{% for i in instruments %}
+<tr><td><a href="{{ url_for('admin_instrument', iid=i.id) }}"><span style="color:{{ i.colour }}">■</span> {{ i.name }}</a></td>
+<td class="small">{{ i.approval }}</td>
+{% for c in categories %}<td class="num">{{ '%.2f' % rates[i.id][c] }}</td>{% endfor %}
+<td>{{ 'yes' if i.active else 'no' }}</td></tr>
+{% else %}<tr><td colspan="9" class="muted">No instruments yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

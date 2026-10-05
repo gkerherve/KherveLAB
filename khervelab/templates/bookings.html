@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}My bookings{% endblock %}
+{% block content %}
+<h1>My bookings</h1>
+<div class="card small">This month so far: <b>{{ '%.2f' % month.total_hours }} h</b>, <b>{{ month.total_cost | money }}</b> (approved bookings).</div>
+<div class="table-wrap"><table>
+<tr><th>Instrument</th><th>From</th><th>To</th><th>Status</th><th class="num">Cost</th><th>Note</th><th></th></tr>
+{% for b in rows %}
+<tr>
+  <td>{{ b.instrument }}</td><td>{{ b.start | when }}</td><td>{{ b.end | when }}</td>
+  <td><span class="status {{ b.status }}">{{ b.status }}</span></td>
+  <td class="num">{{ cost(b) | money }}</td>
+  <td class="small">{{ b.purpose }}{% if b.note %}<br><span class="muted">Manager: {{ b.note }}</span>{% endif %}</td>
+  <td>{% if b.status in ('pending', 'approved') and b.start > now %}
+    <form class="inline" method="post" action="{{ url_for('cancel', bid=b.id) }}" onsubmit="return confirm('Cancel this booking?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger">Cancel</button></form>{% endif %}</td>
+</tr>
+{% else %}<tr><td colspan="7" class="muted">No bookings yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}
