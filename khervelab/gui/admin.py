@@ -283,7 +283,7 @@ class InstrumentsDialog(QDialog):
         ml.addWidget(self.sessions)
         self.mode_sessions.toggled.connect(self._mode_changed)
 
-        rules = QGroupBox("Booking rules (the lab manager is exempt)")
+        rules = QGroupBox("When and how it is booked (the lab manager is exempt)")
         rg = QGridLayout(rules)
         # slot and shortest up to a day; longest can span days on around-the-clock
         # instruments (e.g. a 72 h thermal run)
@@ -292,29 +292,50 @@ class InstrumentsDialog(QDialog):
         self.ahead = QSpinBox()
         self.ahead.setRange(1, 3650)
         self.ahead.setSuffix(" days")
-        self.open_t, self.close_t = QTimeEdit(), QTimeEdit()
-        for w in (self.open_t, self.close_t):
+
+        def time_edit():
+            w = QTimeEdit()
             w.setDisplayFormat("HH:mm")
-        self.all_day = QCheckBox("Around the clock (overnight runs allowed)")
-        self.all_day.toggled.connect(lambda on: (self.open_t.setEnabled(not on),
-                                                 self.close_t.setEnabled(not on)))
-        self.weekends = QCheckBox("Bookable at weekends")
-        for r, (label, w) in enumerate((("Slot", self.slot), ("Shortest", self.min),
-                                        ("Longest", self.max), ("Book ahead up to", self.ahead))):
-            rg.addWidget(QLabel(label), r // 2, (r % 2) * 2)
-            rg.addWidget(w, r // 2, (r % 2) * 2 + 1)
-        rg.addWidget(QLabel("Opens"), 2, 0)
-        rg.addWidget(self.open_t, 2, 1)
-        rg.addWidget(QLabel("Closes"), 2, 2)
-        rg.addWidget(self.close_t, 2, 3)
-        rg.addWidget(self.all_day, 3, 0, 1, 4)
-        rg.addWidget(self.weekends, 4, 0, 1, 4)
-        hint = QLabel("Slots are counted from the opening time (from midnight when open around "
-                      "the clock), and a booking is a whole number of slots: a 4.5 h slot on an "
-                      "instrument opening at 08:00 gives 08:00, 12:30 and 17:00.")
+            return w
+        self.open_t, self.close_t = time_edit(), time_edit()
+        self.all_day = QCheckBox("Around the clock")
+        self.all_day.toggled.connect(self._periods_changed)
+        self.period = {}
+        for kind in ("evening", "weekend"):
+            how = QComboBox()
+            for key, label in logic.PERIOD_MODES.items():
+                how.addItem(label, key)
+            how.currentIndexChanged.connect(self._periods_changed)
+            self.period[kind] = {"mode": how, "start": time_edit(), "end": time_edit(),
+                                 "slot": DurationEdit(1440)}
+        for c, head in enumerate(("", "From", "To", "Booked as", "Slot")):
+            lab = QLabel(f"<b>{head}</b>")
+            rg.addWidget(lab, 0, c)
+        rows = (("Daytime (Mon–Fri)", self.open_t, self.close_t, self.all_day, self.slot),
+                ("Evening (Mon–Fri)", self.period["evening"]["start"],
+                 self.period["evening"]["end"], self.period["evening"]["mode"],
+                 self.period["evening"]["slot"]),
+                ("Weekend (Sat & Sun, each day)", self.period["weekend"]["start"],
+                 self.period["weekend"]["end"], self.period["weekend"]["mode"],
+                 self.period["weekend"]["slot"]))
+        for r, (label, w1, w2, w3, w4) in enumerate(rows, start=1):
+            rg.addWidget(QLabel(label), r, 0)
+            for c, w in enumerate((w1, w2, w3, w4), start=1):
+                rg.addWidget(w, r, c)
+        limits = QHBoxLayout()
+        for label, w in (("Daytime shortest", self.min), ("longest", self.max),
+                         ("Book ahead up to", self.ahead)):
+            limits.addWidget(QLabel(label))
+            limits.addWidget(w, 1)
+        rg.addLayout(limits, 4, 0, 1, 5)
+        hint = QLabel("An end at or before the start runs into the next day (an evening of "
+                      "17:00 → 08:00). Slots are counted from the start of each period, and a "
+                      "booking is a whole number of slots: a 4.5 h daytime slot from 08:00 gives "
+                      "08:00, 12:30 and 17:00. “One booking” takes the whole evening or weekend "
+                      "day at once. Shortest and longest apply to daytime bookings.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #57606a;")
-        rg.addWidget(hint, 5, 0, 1, 4)
+        rg.addWidget(hint, 5, 0, 1, 5)
 
         trained = QGroupBox("Trained users (book at once with 'automatic for trained users')")
         tl = QVBoxLayout(trained)
@@ -397,8 +418,12 @@ class InstrumentsDialog(QDialog):
         all_day = i["open_time"] == "00:00" and i["close_time"] in ("24:00", "23:59")
         self.all_day.setChecked(all_day)
         self.open_t.setTime(_time("08:00" if all_day else i["open_time"]))
-        self.close_t.setTime(_time("20:00" if all_day else i["close_time"]))
-        self.weekends.setChecked(bool(i["weekends"]))
+        self.close_t.setTime(_time("17:00" if all_day else i["close_time"]))
+        for kind, w in self.period.items():
+            w["mode"].setCurrentIndex(max(0, w["mode"].findData(i[f"{kind}_mode"])))
+            w["start"].setTime(_time(i[f"{kind}_start"]))
+            w["end"].setTime(_time(i[f"{kind}_end"]))
+            w["slot"].setMinutes(i[f"{kind}_slot"])
         (self.mode_sessions if i["booking_mode"] == "sessions" else self.mode_free).setChecked(True)
         self.sessions.load(i["id"])
         self._mode_changed()
@@ -417,12 +442,23 @@ class InstrumentsDialog(QDialog):
         sessions = self.mode_sessions.isChecked()
         self.sessions.setVisible(sessions)
         # in session mode the sessions fix the times; only "book ahead" still applies
-        for w in (self.slot, self.min, self.max, self.open_t, self.close_t, self.all_day,
-                  self.weekends):
+        for w in (self.slot, self.min, self.max, self.all_day):
             w.setEnabled(not sessions)
-        if not sessions:
-            self.open_t.setEnabled(not self.all_day.isChecked())
-            self.close_t.setEnabled(not self.all_day.isChecked())
+        self._periods_changed()
+
+    def _periods_changed(self, *_):
+        free = not self.mode_sessions.isChecked()
+        around = self.all_day.isChecked()
+        self.open_t.setEnabled(free and not around)
+        self.close_t.setEnabled(free and not around)
+        for kind, w in self.period.items():
+            # an around-the-clock daytime leaves no weekday evening to book
+            usable = free and not (kind == "evening" and around)
+            mode = w["mode"].currentData()
+            w["mode"].setEnabled(usable)
+            w["start"].setEnabled(usable and mode != "closed")
+            w["end"].setEnabled(usable and mode != "closed")
+            w["slot"].setEnabled(usable and mode == "own")
 
     def _add(self):
         iid = logic.add_instrument(self.conn, "New instrument", "", "manual", "#1f6feb", "08:00",
@@ -449,8 +485,20 @@ class InstrumentsDialog(QDialog):
         else:
             o, c = self.open_t.time().toString("HH:mm"), self.close_t.time().toString("HH:mm")
             if o >= c:
-                QMessageBox.warning(self, "Instrument", "Closing must be after opening.")
+                QMessageBox.warning(self, "Instrument", "The daytime must end after it starts "
+                                    "(use the evening for time past midnight).")
                 return
+        per = {}
+        for kind, w in self.period.items():
+            mode = w["mode"].currentData()
+            if kind == "evening" and self.all_day.isChecked():
+                mode = "closed"
+            st, en = w["start"].time().toString("HH:mm"), w["end"].time().toString("HH:mm")
+            if mode != "closed" and st == en and kind == "evening":
+                QMessageBox.warning(self, "Instrument", "The evening needs different start and "
+                                    "end times.")
+                return
+            per[kind] = (mode, st, en, w["slot"].minutes())
         approval = next(k for k, b in self.approval_btns.items() if b.isChecked())
         booking_mode = "sessions" if self.mode_sessions.isChecked() else "free"
         try:
@@ -464,11 +512,14 @@ class InstrumentsDialog(QDialog):
         self.conn.execute(
             "UPDATE instruments SET name=?, description=?, location=?, colour=?, active=?, "
             "approval=?, slot_minutes=?, min_minutes=?, max_minutes=?, max_days_ahead=?, "
-            "open_time=?, close_time=?, weekends=?, booking_mode=? WHERE id=?",
+            "open_time=?, close_time=?, weekends=?, booking_mode=?, evening_mode=?, "
+            "evening_start=?, evening_end=?, evening_slot=?, weekend_mode=?, weekend_start=?, "
+            "weekend_end=?, weekend_slot=? WHERE id=?",
             (name, self.description.toPlainText().strip(), self.location.text().strip(),
              self.colour, int(self.active.isChecked()), approval, slot, shortest, longest,
              self.ahead.value(), o, c,
-             int(self.weekends.isChecked()), booking_mode, self.current))
+             int(per["weekend"][0] != "closed"), booking_mode, *per["evening"], *per["weekend"],
+             self.current))
         for cat, sb in self.rates.items():
             self.conn.execute("INSERT INTO rates (instrument_id, category, rate) VALUES (?,?,?) "
                               "ON CONFLICT(instrument_id, category) DO UPDATE SET rate=excluded.rate",

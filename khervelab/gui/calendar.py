@@ -164,10 +164,19 @@ class CalendarView(QGraphicsView):
         inst = self._inst(self.columns[col].instrument)
         return inst["slot_minutes"] if inst else 30
 
-    def _origin(self, col: int) -> int:
-        """Minute of the day the slot grid starts from (the opening time)."""
+    def _snap_create(self, col: int, start: datetime, t: datetime | None) -> tuple:
+        """Start (and end) of a new booking dragged on a column, following the
+        instrument's daytime, evening and weekend periods."""
         inst = self._inst(self.columns[col].instrument)
-        return logic.minutes_of(logic.slot_origin(inst)) if inst else 0
+        if inst is None or inst["booking_mode"] == "sessions":
+            g = 30
+            s0 = start.replace(minute=start.minute // g * g)
+            e0 = max(t or s0, s0 + timedelta(minutes=g))
+            return s0, e0
+        s0 = logic.snap_start(inst, start)
+        if t is None:
+            t = s0 + timedelta(minutes=1)
+        return s0, logic.snap_end(inst, s0, max(t, s0 + timedelta(minutes=1)))
 
     # -- data ------------------------------------------------------------------
     def bookings(self, start: datetime, end: datetime) -> list[dict]:
@@ -222,11 +231,43 @@ class CalendarView(QGraphicsView):
             self._scrolled = True
             QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(int(7 * 60 * PPM)))
 
-    def _closed(self, inst, d: date, m0: int) -> bool:
-        if d.weekday() >= 5 and not inst["weekends"]:
-            return True
-        o, c = logic.minutes_of(inst["open_time"]), logic.minutes_of(inst["close_time"])
-        return m0 < o or m0 + 30 > c
+    def _draw_periods(self, inst, day: date, x: float) -> None:
+        """Closed outside the instrument's periods; evening and weekend
+        windows are labelled with how they are booked."""
+        sc, c = self.scene(), self.colours
+        none = QPen(Qt.PenStyle.NoPen)
+        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.closed)).setZValue(-2.5)
+        d0, d1 = self._at(day, 0), self._at(day, 1440)
+        small = QFont()
+        small.setPointSizeF(7.5)
+        for p in logic.periods(inst, d0, d1):
+            s0, s1 = max(p.start, d0), min(p.end, d1)
+            m0 = (s0 - d0).total_seconds() / 60
+            m1 = (s1 - d0).total_seconds() / 60
+            r = QRectF(x + 1, HEADER + m0 * PPM, self.colw - 2, (m1 - m0) * PPM)
+            sc.addRect(r, none, QColor(c.background)).setZValue(-2)
+            if p.slot and p.slot >= 60:              # show where long slots meet
+                k = 1
+                while p.start + timedelta(minutes=k * p.slot) < p.end:
+                    t = p.start + timedelta(minutes=k * p.slot)
+                    if d0 < t < d1:
+                        y = HEADER + (t - d0).total_seconds() / 60 * PPM
+                        sc.addLine(x + 1, y, x + self.colw - 1, y,
+                                   QPen(QColor(inst["colour"]), 1, Qt.PenStyle.DotLine)
+                                   ).setZValue(-0.6)
+                    k += 1
+            if p.kind != "day" or p.slot is None:
+                tint = QColor(inst["colour"])
+                tint.setAlpha(14 if p.slot else 26)
+                sc.addRect(r, none, tint).setZValue(-1.9)
+            if p.start >= d0 and p.kind != "day":
+                how = "one booking" if p.slot is None else f"{logic.fmt_duration(p.slot)} slots"
+                sc.addLine(x + 1, r.top(), x + self.colw - 1, r.top(),
+                           QPen(QColor(inst["colour"]), 1, Qt.PenStyle.DashLine)).setZValue(-0.5)
+                t = sc.addSimpleText(f"{p.label} {p.start:%H:%M}–{p.end:%H:%M} · {how}", small)
+                t.setBrush(QColor(c.muted))
+                t.setPos(x + self.colw - t.boundingRect().width() - 4, r.top() + 1)
+                t.setZValue(-0.5)
 
     def _draw_grid(self) -> None:
         sc, c = self.scene(), self.colours
@@ -240,10 +281,7 @@ class CalendarView(QGraphicsView):
             if inst is not None and inst["booking_mode"] == "sessions":
                 self._draw_sessions(inst, col.day, x)
             elif inst is not None:
-                for slot in range(48):
-                    if self._closed(inst, col.day, slot * 30):
-                        sc.addRect(QRectF(x, HEADER + slot * ROW, self.colw, ROW), none,
-                                   QColor(c.closed)).setZValue(-2)
+                self._draw_periods(inst, col.day, x)
         grid, hour = QPen(QColor(c.grid)), QPen(QColor(c.grid_hour))
         right = GUTTER + self.colw * len(self.columns)
         for slot in range(49):
@@ -525,9 +563,9 @@ class CalendarView(QGraphicsView):
         else:
             if not self.columns[col].instrument:
                 return
-            g, o = self._slot(col), self._origin(col)
-            m0 = int(o + (minutes - o) // g * g)
-            self._drag = {"mode": "create", "col": col, "m0": m0, "m1": m0 + g, "moved": False}
+            day = self.columns[col].day
+            s0, e0 = self._snap_create(col, self._at(day, minutes), None)
+            self._drag = {"mode": "create", "col": col, "s": s0, "e": e0, "moved": False}
         self._show_ghost()
 
     def mouseMoveEvent(self, event) -> None:
@@ -539,8 +577,9 @@ class CalendarView(QGraphicsView):
         g = self._slot(d["col"])
         m = self._minutes_at(pos.y())
         if d["mode"] == "create":
-            # whole slots from the start; a long slot may run past midnight
-            d["m1"] = d["m0"] + g * max(1, round((m - d["m0"]) / g))
+            col = self._col_at(pos.x())
+            day = self.columns[d["col"] if col is None else col].day
+            d["e"] = self._snap_create(d["col"], d["s"], self._at(day, m))[1]
         else:
             d["m_now"] = m
             col = self._col_at(pos.x())
@@ -560,8 +599,7 @@ class CalendarView(QGraphicsView):
             return
         col = self.columns[d["col"]]
         if d["mode"] == "create":
-            self.createRequested.emit(col.instrument, self._at(col.day, d["m0"]),
-                                      self._at(col.day, d["m1"]))
+            self.createRequested.emit(col.instrument, d["s"], d["e"])
             return
         if not d["moved"]:
             self.openRequested.emit(d["item"].seg.booking["id"])
@@ -589,7 +627,12 @@ class CalendarView(QGraphicsView):
         if not d or d["mode"] == "open":
             return
         if d["mode"] == "create":
-            col, m0, m1 = d["col"], max(0, d["m0"]), min(1440, d["m1"])
+            col = d["col"]
+            day = self.columns[col].day
+            d0 = self._at(day, 0)
+            m0 = max(0.0, (d["s"] - d0).total_seconds() / 60)
+            m1 = min(1440.0, (d["e"] - d0).total_seconds() / 60)
+            m1 = max(m1, m0 + 15)
         else:
             if not d["moved"]:
                 return

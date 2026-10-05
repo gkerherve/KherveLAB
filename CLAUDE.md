@@ -63,11 +63,26 @@ Stack:
   users may only book exact session occurrences (`logic.occurrences`): a
   session belongs to the day it starts, and an end at or before the start is
   the next day. `logic.book_range` books every free session in a range.
-- Free-time slots are counted from the instrument's opening time
-  (`logic.slot_origin`; midnight when around the clock). The start must be
-  on that grid and the length a whole number of slots. Slot and shortest
-  are at most 24 h; lengths are stored in minutes and shown with
-  `logic.fmt_duration`.
+- A free-time instrument has three periods (`logic.periods`):
+  - daytime (Mon–Fri, `open_time`–`close_time`, `slot_minutes`);
+  - evening (Mon–Fri);
+  - weekend (each Sat and Sun).
+
+  Evening and weekend each have a `*_mode` of `closed`, `block` (taken
+  whole), `daytime` (daytime slot length) or `own` (`*_slot`). Windows wrap
+  past midnight when end <= start, and later windows are trimmed so that
+  none overlap.
+- `logic.period_errors` validates a free-time booking:
+  - it must cover contiguous periods;
+  - its start and end must sit on the grid of their period, counted from
+    the period start; a run across same-slot periods only needs a whole
+    number of slots;
+  - block periods are taken whole;
+  - shortest and longest apply to daytime-only bookings.
+
+  `snap_start` and `snap_end` drive drag snapping in the GUI and the web.
+- Lengths are stored in minutes and shown with `logic.fmt_duration`. Slot
+  and shortest are at most 24 h.
 - New columns go into `db.MIGRATIONS` so that existing `lab.db` files gain
   them at start-up.
 - Times are lab-local wall clock (`YYYY-MM-DDTHH:MM`). Durations for billing

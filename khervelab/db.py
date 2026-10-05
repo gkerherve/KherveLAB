@@ -45,7 +45,18 @@ CREATE TABLE IF NOT EXISTS instruments (
     open_time TEXT NOT NULL DEFAULT '08:00',
     close_time TEXT NOT NULL DEFAULT '20:00',
     weekends INTEGER NOT NULL DEFAULT 0,
-    booking_mode TEXT NOT NULL DEFAULT 'free' CHECK (booking_mode IN ('free', 'sessions'))
+    booking_mode TEXT NOT NULL DEFAULT 'free' CHECK (booking_mode IN ('free', 'sessions')),
+    -- free-time periods besides the daytime (open_time-close_time, Mon-Fri):
+    -- mode 'closed', 'block' (one booking for the whole period), 'daytime'
+    -- (the daytime slot length) or 'own' (its own slot length below)
+    evening_mode TEXT NOT NULL DEFAULT 'closed',
+    evening_start TEXT NOT NULL DEFAULT '17:00',
+    evening_end TEXT NOT NULL DEFAULT '08:00',
+    evening_slot INTEGER NOT NULL DEFAULT 60,
+    weekend_mode TEXT NOT NULL DEFAULT 'closed',
+    weekend_start TEXT NOT NULL DEFAULT '08:00',
+    weekend_end TEXT NOT NULL DEFAULT '20:00',
+    weekend_slot INTEGER NOT NULL DEFAULT 60
 );
 
 -- fixed sessions, for instruments booked by session rather than free time;
@@ -128,14 +139,28 @@ MIGRATIONS = [
      "TEXT NOT NULL DEFAULT 'free' CHECK (booking_mode IN ('free', 'sessions'))"),
     ("bookings", "session_id", "INTEGER REFERENCES sessions(id) ON DELETE SET NULL"),
     ("bookings", "price", "REAL"),
+    ("instruments", "evening_mode", "TEXT NOT NULL DEFAULT 'closed'"),
+    ("instruments", "evening_start", "TEXT NOT NULL DEFAULT '17:00'"),
+    ("instruments", "evening_end", "TEXT NOT NULL DEFAULT '08:00'"),
+    ("instruments", "evening_slot", "INTEGER NOT NULL DEFAULT 60"),
+    ("instruments", "weekend_mode", "TEXT NOT NULL DEFAULT 'closed'"),
+    ("instruments", "weekend_start", "TEXT NOT NULL DEFAULT '08:00'"),
+    ("instruments", "weekend_end", "TEXT NOT NULL DEFAULT '20:00'"),
+    ("instruments", "weekend_slot", "INTEGER NOT NULL DEFAULT 60"),
 ]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
+    added = set()
     for table, column, decl in MIGRATIONS:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            added.add(column)
+    if "weekend_mode" in added:
+        # "bookable at weekends" used the daytime hours and slots
+        conn.execute("UPDATE instruments SET weekend_mode='daytime', weekend_start=open_time, "
+                     "weekend_end=close_time WHERE weekends=1")
 
 
 def init(conn: sqlite3.Connection) -> None:

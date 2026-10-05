@@ -237,9 +237,6 @@ class MainWindow(QMainWindow):
         trained = logic.is_authorised(self.conn, self.me["id"], inst["id"])
         instant = self.admin or inst["approval"] == "auto" or (inst["approval"] == "trained"
                                                                and trained)
-        hours = ("around the clock" if inst["open_time"] == "00:00" and
-                 inst["close_time"] in ("24:00", "23:59") else
-                 f"{inst['open_time']}–{inst['close_time']}")
         approval = ("books at once" if instant else
                     "<span style='color:#9a6700'>bookings need approval</span>")
         head = [f"<b>{html.escape(inst['name'])}</b>",
@@ -256,11 +253,10 @@ class MainWindow(QMainWindow):
             return " · ".join(b for b in head if b) + "<br>Sessions — " + \
                 ("; ".join(parts) if parts else "none defined yet")
         bits = head + [f"{cur}{rate:,.2f}/h for you",
-                       f"{hours}, {'every day' if inst['weekends'] else 'weekdays'}",
-                       f"{logic.fmt_duration(inst['min_minutes'])}–"
-                       f"{logic.fmt_duration(inst['max_minutes'])} in "
-                       f"{logic.fmt_duration(inst['slot_minutes'])} slots"]
-        return " · ".join(b for b in bits if b)
+                       f"daytime bookings {logic.fmt_duration(inst['min_minutes'])}–"
+                       f"{logic.fmt_duration(inst['max_minutes'])}"]
+        return " · ".join(b for b in bits if b) + "<br>" + \
+            html.escape(logic.describe_periods(inst))
 
     # -- navigation -------------------------------------------------------------
     def step(self, direction: int):
@@ -302,9 +298,12 @@ class MainWindow(QMainWindow):
 
     def create_booking(self, iid: int, start: datetime, end: datetime):
         inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
-        if inst is not None and inst["booking_mode"] == "free" and \
-                (end - start) < timedelta(minutes=inst["min_minutes"]):
-            end = start + timedelta(minutes=inst["min_minutes"])
+        if inst is not None and inst["booking_mode"] == "free":
+            start = logic.snap_start(inst, start)
+            end = logic.snap_end(inst, start, end)
+            shortest = start + timedelta(minutes=inst["min_minutes"])
+            if end < shortest and logic.period_errors(inst, start, end):
+                end = logic.snap_end(inst, start, shortest)
         dlg = BookingDialog(self.conn, self.me, iid, start, end, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             n = len(dlg.result_ids)
@@ -318,6 +317,14 @@ class MainWindow(QMainWindow):
 
     def move_booking(self, bid: int, start: datetime, end: datetime, iid: int):
         inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
+        if inst["booking_mode"] == "free":
+            old = self.conn.execute("SELECT start FROM bookings WHERE id=?", (bid,)).fetchone()
+            if logic.fmt(start) == old["start"]:            # resized: snap the end only
+                end = logic.snap_end(inst, start, end)
+            else:                                           # moved: snap, keep the length
+                length = end - start
+                start = logic.snap_start(inst, start)
+                end = logic.snap_end(inst, start, start + length)
         if inst["booking_mode"] == "sessions":
             # snap to the session the dragged booking now sits in (its middle)
             mid = start + (end - start) / 2

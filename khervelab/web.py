@@ -242,6 +242,7 @@ def create_app(data_dir: Path | str) -> Flask:
                              "cost": price if price is not None else hrs * my_rate,
                              "fixed": price is not None})
         return render_template("instrument.html", inst=inst, my_rate=my_rate, sessions=sessions,
+                               periods=logic.describe_periods(inst),
                                trained=logic.is_authorised(g.db, g.user["id"], iid))
 
     @app.route("/book", methods=["POST"])
@@ -256,6 +257,9 @@ def create_app(data_dir: Path | str) -> Flask:
         except ValueError:
             flash("Choose a start and an end time.", "error")
             return redirect(url_for("instrument", iid=iid))
+        if inst["booking_mode"] == "free":     # to the slots or whole evening/weekend
+            start = logic.snap_start(inst, start)
+            end = logic.snap_end(inst, start, end)
         try:
             made, problems = logic.book_range(g.db, iid, g.user["id"], start, end,
                                               f.get("purpose", ""))

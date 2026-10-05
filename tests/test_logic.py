@@ -8,6 +8,10 @@ from khervelab import db, logic, reports
 
 
 def mk_inst(conn, approval="manual", **kw):
+    if kw.get("weekends"):        # weekends on the daytime hours and slots
+        kw.setdefault("weekend_mode", "daytime")
+        kw.setdefault("weekend_start", kw.get("open_time", "08:00"))
+        kw.setdefault("weekend_end", kw.get("close_time", "20:00"))
     cols = {"name": "XPS", "approval": approval, **kw}
     keys = ", ".join(cols)
     cur = conn.execute(f"INSERT INTO instruments ({keys}) VALUES ({', '.join('?' * len(cols))})",
@@ -79,10 +83,10 @@ def test_rejected_slot_is_free_again(conn):
 
 
 @pytest.mark.parametrize("start,end,msg", [
-    ((7, 0), (9, 0), "between 08:00 and 20:00"),
+    ((7, 0), (9, 0), "closed at .*Daytime 08:00–20:00"),
     ((9, 0), (9, 15), "shortest"),
     ((9, 0), (19, 0), "longest"),
-    ((9, 10), (10, 0), "slots"),
+    ((9, 10), (10, 0), "30 min slot of the daytime"),
 ])
 def test_rules(conn, start, end, msg):
     i = mk_inst(conn)
@@ -109,14 +113,14 @@ def test_overnight_run_on_round_the_clock_instrument(conn):
     s = nextweekday(18)
     assert logic.book(conn, i, user(conn), s, s + timedelta(hours=15)).status == "approved"
     j = mk_inst(conn, "auto")
-    with pytest.raises(logic.BookingError, match="one day"):
+    with pytest.raises(logic.BookingError, match="closed from .* 20:00"):
         logic.book(conn, j, user(conn, "bob"), s, s + timedelta(hours=15))
 
 
 def test_until_midnight_respects_closing_time(conn):
     i = mk_inst(conn, "auto")
     s = nextweekday(18)
-    with pytest.raises(logic.BookingError, match="between"):
+    with pytest.raises(logic.BookingError, match="closed from .* 20:00"):
         logic.book(conn, i, user(conn), s, s.replace(hour=0) + timedelta(days=1))
 
 
@@ -248,7 +252,7 @@ def test_long_slots_count_from_opening_time(conn):
     assert logic.book(conn, i, u, d.replace(hour=8), d.replace(hour=12, minute=30)).status \
         == "approved"
     logic.book(conn, i, u, d.replace(hour=12, minute=30), d.replace(hour=17))
-    with pytest.raises(logic.BookingError, match="slots counted from 08:00"):
+    with pytest.raises(logic.BookingError, match="4.5 h slot of the daytime, counted from 08:00"):
         logic.book(conn, i, user(conn, "bob"), d.replace(hour=9) + timedelta(days=1),
                    d.replace(hour=13, minute=30) + timedelta(days=1))
 
@@ -259,7 +263,7 @@ def test_24_hour_slot_and_overnight_9_hour_run(conn):
     u = user(conn)
     d = nextweekday(0)
     logic.book(conn, i, u, d, d + timedelta(days=1))
-    with pytest.raises(logic.BookingError, match="whole number"):
+    with pytest.raises(logic.BookingError, match="24 h slot"):
         logic.book(conn, i, u, d + timedelta(days=1), d + timedelta(days=2, hours=12))
     j = mk_inst(conn, "auto", name="TGA", slot_minutes=540, min_minutes=540, max_minutes=1440,
                 open_time="00:00", close_time="24:00", weekends=1)

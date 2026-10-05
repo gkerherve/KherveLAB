@@ -80,17 +80,6 @@ def fmt_duration(minutes: float) -> str:
     return f"{h} h {m} min"
 
 
-def slot_origin(inst) -> str:
-    """Slots are counted from opening time each day, so a 4.5 h slot on an
-    instrument opening at 08:00 gives 08:00, 12:30, 17:00."""
-    return "00:00" if inst["open_time"] == "00:00" else inst["open_time"]
-
-
-def on_slot(inst, t: datetime) -> bool:
-    origin = minutes_of(slot_origin(inst))
-    return ((t.hour * 60 + t.minute) - origin) % inst["slot_minutes"] == 0
-
-
 def minutes_of(hhmm: str) -> int:
     h, m = hhmm.strip().split(":")
     return int(h) * 60 + int(m)
@@ -171,6 +160,175 @@ def rates(conn, instrument_id: int) -> dict[str, float]:
 
 
 # -- bookings ---------------------------------------------------------------------------
+
+# -- daytime, evening and weekend periods (free-time instruments) ----------------------
+
+PERIOD_MODES = {
+    "closed": "Closed",
+    "block": "One booking for the whole period",
+    "daytime": "Same slots as the daytime",
+    "own": "Its own slot length",
+}
+PERIOD_NAMES = {"day": "Daytime", "evening": "Evening", "weekend": "Weekend"}
+
+
+@dataclass(frozen=True)
+class Period:
+    kind: str                 # day, evening, weekend
+    start: datetime
+    end: datetime
+    slot: int | None          # minutes; None = book the whole period as one booking
+
+    @property
+    def label(self) -> str:
+        return PERIOD_NAMES[self.kind]
+
+
+def _span(day, start_hhmm: str, end_hhmm: str) -> tuple[datetime, datetime]:
+    """A daily window; an end at or before the start is the next day."""
+    base = datetime(day.year, day.month, day.day)
+    s, e = minutes_of(start_hhmm), minutes_of(end_hhmm)
+    if e <= s:
+        e += 1440
+    return base + timedelta(minutes=s), base + timedelta(minutes=e)
+
+
+def _slot_for(inst, kind: str) -> int | None:
+    mode = inst[f"{kind}_mode"]
+    if mode == "block":
+        return None
+    if mode == "own":
+        return inst[f"{kind}_slot"]
+    return inst["slot_minutes"]
+
+
+def periods(inst, start: datetime, end: datetime) -> list[Period]:
+    """The bookable windows of a free-time instrument overlapping [start, end):
+    the daytime on weekdays, then the evening (weekdays) and the weekend
+    (Saturday and Sunday), each in its own way. A window that would overlap
+    an earlier one is trimmed, so they never double up."""
+    out: list[Period] = []
+    day = start.date() - timedelta(days=1)
+    while day <= end.date():
+        weekday = day.weekday() < 5
+        if weekday:
+            s0, s1 = _span(day, inst["open_time"], inst["close_time"])
+            out.append(Period("day", s0, s1, inst["slot_minutes"]))
+            if inst["evening_mode"] != "closed":
+                s0, s1 = _span(day, inst["evening_start"], inst["evening_end"])
+                out.append(Period("evening", s0, s1, _slot_for(inst, "evening")))
+        elif inst["weekend_mode"] != "closed":
+            s0, s1 = _span(day, inst["weekend_start"], inst["weekend_end"])
+            out.append(Period("weekend", s0, s1, _slot_for(inst, "weekend")))
+        day += timedelta(days=1)
+    out.sort(key=lambda p: p.start)
+    trimmed: list[Period] = []
+    for p in out:
+        if trimmed and p.start < trimmed[-1].end:
+            p = Period(p.kind, trimmed[-1].end, p.end, p.slot)
+        if p.end > p.start:
+            trimmed.append(p)
+    return [p for p in trimmed if p.start < end and p.end > start]
+
+
+def _on_grid(p: Period, t: datetime) -> bool:
+    if t in (p.start, p.end):
+        return True
+    if p.slot is None:
+        return False
+    return int((t - p.start).total_seconds() // 60) % p.slot == 0
+
+
+def period_errors(inst, start: datetime, end: datetime) -> list[str]:
+    """A free-time booking must lie in bookable periods with no gap, start and
+    end on a slot of the period it falls in, and take a one-booking period
+    whole. Shortest and longest apply to daytime bookings; evenings and
+    weekends are governed by their own slots or blocks."""
+    ps = periods(inst, start, end)
+    first = next((p for p in ps if p.start <= start < p.end), None)
+    if first is None:
+        if start.weekday() >= 5 and inst["weekend_mode"] == "closed":
+            return [f"{inst['name']} cannot be booked at weekends"]
+        return [f"{inst['name']} is closed at {start:%a %H:%M} ({describe_periods(inst)})"]
+    chain = [first]
+    while chain[-1].end < end:
+        nxt = next((p for p in ps if p.start == chain[-1].end), None)
+        if nxt is None:
+            return [f"{inst['name']} is closed from {chain[-1].end:%a %H:%M}, so the booking "
+                    f"must end by then ({describe_periods(inst)})"]
+        chain.append(nxt)
+    last = chain[-1]
+    errors = []
+    minutes = (end - start).total_seconds() / 60
+    slots = {p.slot for p in chain}
+    # a run carrying on through slotted periods of one slot length (e.g. a 9 h
+    # run from 18:00 to 03:00) only needs to be a whole number of slots
+    whole_run = len(chain) > 1 and len(slots) == 1 and None not in slots and \
+        minutes % first.slot == 0
+    for p, t, what in ((first, start, "start"), (last, end, "end")):
+        if what == "end" and whole_run:
+            continue
+        if not _on_grid(p, t):
+            if p.slot is None:
+                errors.append(f"the {p.label.lower()} ({p.start:%H:%M}–{p.end:%H:%M}) is booked "
+                              "as one block")
+            else:
+                errors.append(f"the {what} must fall on a {fmt_duration(p.slot)} slot of the "
+                              f"{p.label.lower()}, counted from {p.start:%H:%M}")
+    if all(p.kind == "day" for p in chain):
+        if minutes < inst["min_minutes"]:
+            errors.append(f"the shortest booking is {fmt_duration(inst['min_minutes'])}")
+        if minutes > inst["max_minutes"]:
+            errors.append(f"the longest booking is {fmt_duration(inst['max_minutes'])}")
+    return errors
+
+
+def snap_start(inst, t: datetime) -> datetime:
+    """Where a click at t starts a booking: the slot it is in, or the whole
+    block. Outside every period the time is returned unchanged."""
+    p = next((p for p in periods(inst, t, t + timedelta(minutes=1)) if p.start <= t < p.end),
+             None)
+    if p is None:
+        return t
+    if p.slot is None:
+        return p.start
+    steps = int((t - p.start).total_seconds() // 60) // p.slot
+    return p.start + timedelta(minutes=steps * p.slot)
+
+
+def snap_end(inst, start: datetime, t: datetime) -> datetime:
+    """The end for a drag from start to t: the slot boundary nearest t (at
+    least one slot), or the end of the block t is in."""
+    t = max(t, start + timedelta(minutes=1))
+    p = next((p for p in periods(inst, t - timedelta(minutes=1), t)
+              if p.start < t <= p.end), None)
+    if p is None:
+        return t
+    if p.slot is None:
+        return p.end
+    origin = max(p.start, start) if p.start <= start < p.end else p.start
+    steps = max(1, round((t - origin).total_seconds() / 60 / p.slot))
+    return min(p.end, origin + timedelta(minutes=steps * p.slot))
+
+
+def describe_periods(inst) -> str:
+    def window(s, e):
+        return f"{s}–{e}" + (" (next day)" if minutes_of(e) <= minutes_of(s) else "")
+    around = inst["open_time"] == "00:00" and inst["close_time"] in ("24:00", "23:59")
+    parts = [("Weekdays around the clock" if around else
+              f"Daytime {window(inst['open_time'], inst['close_time'])}")
+             + f" in {fmt_duration(inst['slot_minutes'])} slots"]
+    for kind in ("evening", "weekend"):
+        mode = inst[f"{kind}_mode"]
+        if mode == "closed":
+            parts.append(f"{PERIOD_NAMES[kind]} closed")
+            continue
+        how = ("as one booking" if mode == "block" else
+               f"in {fmt_duration(_slot_for(inst, kind))} slots")
+        parts.append(f"{PERIOD_NAMES[kind]} {window(inst[kind + '_start'], inst[kind + '_end'])}"
+                     + (" each day" if kind == "weekend" else "") + f" {how}")
+    return " · ".join(parts)
+
 
 # -- sessions -------------------------------------------------------------------------
 
@@ -330,33 +488,7 @@ def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: date
         else:
             minutes = (end - start).total_seconds() / 60
     if not admin and minutes is not None:
-        if minutes < inst["min_minutes"]:
-            errors.append(f"the shortest booking is {fmt_duration(inst['min_minutes'])}")
-        if minutes > inst["max_minutes"]:
-            errors.append(f"the longest booking is {fmt_duration(inst['max_minutes'])}")
-        slot = inst["slot_minutes"]
-        if not on_slot(inst, start):
-            errors.append(f"bookings start on {fmt_duration(slot)} slots counted from "
-                          f"{slot_origin(inst)}")
-        elif minutes % slot:
-            errors.append(f"the length must be a whole number of {fmt_duration(slot)} slots")
-        open_t, close_t = inst["open_time"], inst["close_time"]
-        last_day = (end - timedelta(minutes=1)).date()
-        day = start.date()
-        while day <= last_day:
-            if day.weekday() >= 5 and not inst["weekends"]:
-                errors.append(f"{inst['name']} cannot be booked at weekends")
-                break
-            day += timedelta(days=1)
-        open_m, close_m = minutes_of(open_t), minutes_of(close_t)
-        if not (open_m == 0 and close_m >= 1439):        # not open around the clock
-            if start.date() != last_day:
-                errors.append(f"bookings must stay within one day ({open_t}–{close_t})")
-            else:
-                s_m = start.hour * 60 + start.minute
-                e_m = 1440 if end.date() > start.date() else end.hour * 60 + end.minute
-                if s_m < open_m or e_m > close_m:
-                    errors.append(f"{inst['name']} can be booked between {open_t} and {close_t}")
+        errors += period_errors(inst, start, end)
     clash = conn.execute(
         "SELECT b.start, b.end, u.full_name FROM bookings b JOIN users u ON u.id=b.user_id "
         "WHERE b.instrument_id=? AND b.status IN ('pending','approved') AND b.start < ? "

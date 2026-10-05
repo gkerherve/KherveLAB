@@ -336,3 +336,42 @@ def test_durations_in_minutes_or_hours_up_to_a_day(qtbot, lab):
     row = lab["conn"].execute("SELECT slot_minutes, min_minutes, max_minutes FROM instruments "
                               "WHERE id=?", (iid,)).fetchone()
     assert tuple(row) == (1440, 1440, 4320)
+
+
+def test_editor_sets_evening_and_weekend(qtbot, lab):
+    from PyQt6.QtCore import QTime
+    dlg = InstrumentsDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    dlg.all_day.setChecked(False)
+    dlg.open_t.setTime(QTime(8, 0))
+    dlg.close_t.setTime(QTime(17, 0))
+    dlg.slot.setMinutes(270)
+    ev = dlg.period["evening"]
+    ev["mode"].setCurrentIndex(ev["mode"].findData("block"))
+    ev["start"].setTime(QTime(17, 0))
+    ev["end"].setTime(QTime(8, 0))
+    we = dlg.period["weekend"]
+    we["mode"].setCurrentIndex(we["mode"].findData("own"))
+    assert we["slot"].isEnabled() and not ev["slot"].isEnabled()
+    we["slot"].setMinutes(720)
+    dlg._save()
+    row = lab["conn"].execute("SELECT * FROM instruments WHERE id=?", (dlg.current,)).fetchone()
+    assert (row["open_time"], row["close_time"], row["slot_minutes"]) == ("08:00", "17:00", 270)
+    assert (row["evening_mode"], row["evening_start"], row["evening_end"]) == \
+        ("block", "17:00", "08:00")
+    assert (row["weekend_mode"], row["weekend_slot"], row["weekends"]) == ("own", 720, 1)
+
+
+def test_drag_in_evening_takes_the_whole_block(qtbot, lab):
+    conn = lab["conn"]
+    conn.execute("UPDATE instruments SET open_time='08:00', close_time='17:00', "
+                 "evening_mode='block', evening_start='17:00', evening_end='08:00' WHERE id=?",
+                 (lab["xps"],))
+    w = window(qtbot, lab)
+    d = weekday()
+    w.anchor = d
+    w.tabs.setCurrentIndex(2)
+    w.set_mode("week")
+    view = w.tabs.currentWidget().view
+    s0, e0 = view._snap_create(d.weekday(), at(d, 19), None)
+    assert (s0, e0) == (at(d, 17), at(d, 8) + timedelta(days=1))

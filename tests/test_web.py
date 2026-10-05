@@ -208,3 +208,21 @@ def test_session_booking_through_the_web(app, browser, new_browser):
                                                            ("12:30", "17:00", 150.0)]
     ev = a.get(f"/api/events?instrument={iid}&start={day}T00:00:00&end={day}T23:59:00").json
     assert sum(1 for e in ev if e.get("display") == "background") == 2
+
+
+def test_web_selection_in_the_evening_books_the_whole_evening(app, browser, new_browser):
+    setup_lab(browser, examples=("BET",))
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_setting(conn, "account_approval", "0")
+    iid = conn.execute("SELECT id FROM instruments").fetchone()[0]
+    conn.execute("UPDATE instruments SET open_time='08:00', close_time='17:00', "
+                 "evening_mode='block', evening_start='17:00', evening_end='08:00' WHERE id=?",
+                 (iid,))
+    a = new_browser()
+    register(a)
+    login(a, "alice", "alicepass1")
+    day = slot(9)[:10]
+    a.post("/book", {"instrument_id": iid, "start": f"{day}T19:00", "end": f"{day}T20:00"})
+    row = conn.execute("SELECT start, end FROM bookings").fetchone()
+    assert row[0] == f"{day}T17:00" and row[1].endswith("T08:00")
+    assert "Evening 17:00–08:00" in a.text(f"/instrument/{iid}")

@@ -120,17 +120,34 @@ The manager sees everything the users see, plus the following:
   - **How it is booked:** free time or fixed sessions (see Sessions).
   - **Hourly rate for each user category.** The defaults are Internal,
     External academic and Industry; you can change them in Lab settings.
-  - **Booking rules**:
-    - **Lengths:** slot, shortest and longest booking, each entered in minutes
-      or hours.
-    - **Slot and shortest** go up to 24 h; the longest can span several days
-      on an around-the-clock instrument.
-    - **Slot grid:** slots are counted from the opening time (from midnight
-      for around-the-clock instruments), and a booking is a whole number of
-      slots. For example, a 4.5 h slot on an instrument opening at 08:00
+  - **When and how it is booked** (free-time instruments): three periods,
+    each with its own start and finish. An end at or before the start runs
+    into the next day.
+    - **Daytime (Mon–Fri)**, e.g. 08:00–17:00. It is booked in the slot
+      length you set (30 min, 4.5 h, up to 24 h, in minutes or hours), or
+      around the clock.
+    - **Evening (Mon–Fri)**, e.g. 17:00 → 08:00. It is either closed, booked
+      as **one booking for the whole evening**, booked in **the same slots
+      as the daytime**, or booked in **its own slot length**.
+    - **Weekend (Sat and Sun, each day)**, e.g. 08:00 → 08:00. It has the
+      same four choices.
+
+    How the periods work:
+    - **Slot grid:** slots are counted from the start of each period, and a
+      booking is a whole number of slots. A 4.5 h daytime slot from 08:00
       gives 08:00, 12:30 and 17:00.
-    - **Other rules:** how far ahead, opening hours or around the clock, and
-      weekends.
+    - **One-booking periods:** an evening or weekend day set to one booking
+      is taken whole.
+    - **Crossing periods:** a booking can run from one period into the next,
+      for example the afternoon slot plus the whole evening, or Friday
+      evening into the weekend.
+    - **Shortest and longest** apply to daytime bookings.
+    - **Book ahead:** how many days ahead people can book.
+
+    On the calendar, the evening and weekend bands are labelled with how
+    they are booked, and dotted lines mark where long slots meet. Dragging
+    snaps to the slots, and a click inside a one-booking period takes the
+    whole period.
 
     With fixed sessions, only "how far ahead" applies.
   - **Trained users.**
