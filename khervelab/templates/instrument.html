@@ -8,7 +8,11 @@
     <div class="card">
       <h2 style="margin-top:0">Book time</h2>
       {% if not inst.active %}<p class="flash error">This instrument is not available for booking.</p>{% endif %}
+      {% if inst.booking_mode == 'sessions' %}
+      <p class="small muted">{{ inst.name }} is booked by session. Drag across the sessions you want (they are shaded on the calendar); every free session you cover is booked.</p>
+      {% else %}
       <p class="small muted">Drag across the calendar to choose a slot, or type the times.</p>
+      {% endif %}
       <form method="post" action="{{ url_for('book') }}" id="bookform">
         <input type="hidden" name="csrf" value="{{ csrf_token }}">
         <input type="hidden" name="instrument_id" value="{{ inst.id }}">
@@ -25,8 +29,12 @@
       <dl class="facts">
         <dt>Your rate</dt><dd>{{ my_rate | money }} per hour ({{ me.category or 'no category' }})</dd>
         <dt>Approval</dt><dd>{{ approval_labels[inst.approval] }}{% if inst.approval == 'trained' %} — you are {% if not trained %}not yet {% endif %}listed as trained{% endif %}</dd>
+        {% if inst.booking_mode == 'sessions' %}
+        <dt>Sessions</dt><dd>{% for s in sessions %}{{ s.name }} {{ s.start }}–{{ s.end }}, {{ s.days }}: <b>{{ s.cost | money }}</b>{% if not s.fixed %} (hourly){% endif %}<br>{% else %}none defined yet{% endfor %}</dd>
+        {% else %}
         <dt>Hours</dt><dd>{% if inst.open_time == '00:00' and inst.close_time in ('24:00','23:59') %}around the clock{% else %}{{ inst.open_time }}–{{ inst.close_time }}{% endif %}, {{ 'every day' if inst.weekends else 'weekdays' }}</dd>
         <dt>Length</dt><dd>{{ inst.min_minutes }}–{{ inst.max_minutes }} min, in {{ inst.slot_minutes }}-min slots</dd>
+        {% endif %}
         <dt>Ahead</dt><dd>up to {{ inst.max_days_ahead }} days</dd>
         {% if inst.location %}<dt>Where</dt><dd>{{ inst.location }}</dd>{% endif %}
       </dl>
@@ -40,12 +48,14 @@
 <script>
 (function () {
   var rate = {{ my_rate | tojson }}, currency = {{ currency | tojson }};
-  var allDay = {{ (inst.open_time == '00:00' and inst.close_time in ('24:00','23:59')) | tojson }};
+  var allDay = {{ (inst.booking_mode == 'sessions' or (inst.open_time == '00:00' and inst.close_time in ('24:00','23:59'))) | tojson }};
   var startEl = document.getElementById('start'), endEl = document.getElementById('end');
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function local(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  var bySession = {{ (inst.booking_mode == 'sessions') | tojson }};
   function estimate() {
     var s = new Date(startEl.value), e = new Date(endEl.value), out = document.getElementById('estimate');
+    if (bySession) { out.textContent = isNaN(s) ? '' : 'Every free session in this range will be booked.'; return; }
     if (isNaN(s) || isNaN(e) || e <= s) { out.textContent = ''; return; }
     var h = (e - s) / 3600000;
     out.textContent = h.toFixed(2) + ' h · estimated cost ' + currency + (h * rate).toFixed(2);
@@ -63,10 +73,11 @@
     scrollTime: '07:00:00',
     slotMinTime: allDay ? '00:00:00' : '{{ inst.open_time }}:00',
     slotMaxTime: allDay ? '24:00:00' : '{{ "24:00" if inst.close_time == "24:00" else inst.close_time }}:00',
-    hiddenDays: {{ '[]' if inst.weekends else '[0, 6]' }},
+    hiddenDays: {{ '[]' if (inst.weekends or inst.booking_mode == 'sessions') else '[0, 6]' }},
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
-    selectable: true, selectMirror: true, selectOverlap: false,
+    selectable: true, selectMirror: true,
+    selectOverlap: function (ev) { return ev.display === 'background'; },
     select: function (info) {
       startEl.value = local(info.start); endEl.value = local(info.end); estimate();
       document.getElementById('bookform').scrollIntoView({ behavior: 'smooth', block: 'nearest' });

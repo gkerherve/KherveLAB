@@ -183,3 +183,28 @@ def test_all_pages_render(app, browser):
         r = browser.get(url)
         assert r.status_code == 200, url
     assert browser.get("/instrument/9999").status_code == 404
+
+
+def test_session_booking_through_the_web(app, browser, new_browser):
+    setup_lab(browser, examples=("BET",))
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_setting(conn, "account_approval", "0")
+    iid = conn.execute("SELECT id FROM instruments").fetchone()[0]
+    conn.execute("UPDATE instruments SET booking_mode='sessions' WHERE id=?", (iid,))
+    logic.save_sessions(conn, iid, [
+        logic.SessionSpec("Morning", "08:00", "12:30", "01234", {"Internal": 150.0}),
+        logic.SessionSpec("Afternoon", "12:30", "17:00", "01234", {"Internal": 150.0})])
+    a = new_browser()
+    register(a)
+    login(a, "alice", "alicepass1")
+    page = a.text(f"/instrument/{iid}")
+    assert "booked by session" in page and "Morning 08:00–12:30" in page
+    day = slot(9)[:10]
+    r = a.post("/book", {"instrument_id": iid, "start": f"{day}T10:00", "end": f"{day}T14:00"},
+               follow_redirects=True)
+    assert "Booked 2 BET sessions" in r.get_data(as_text=True)
+    rows = conn.execute("SELECT start, end, price FROM bookings ORDER BY start").fetchall()
+    assert [(x[0][11:], x[1][11:], x[2]) for x in rows] == [("08:00", "12:30", 150.0),
+                                                           ("12:30", "17:00", 150.0)]
+    ev = a.get(f"/api/events?instrument={iid}&start={day}T00:00:00&end={day}T23:59:00").json
+    assert sum(1 for e in ev if e.get("display") == "background") == 2

@@ -10,12 +10,13 @@ the Free Software Foundation, either version 3 of the License, or
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PyQt6.QtCore import QDateTime, Qt
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDateTimeEdit, QDialog, QDialogButtonBox,
-                             QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                             QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDialog,
+                             QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
+                             QPushButton, QVBoxLayout, QWidget)
 
 from .. import db, logic
 
@@ -241,16 +242,20 @@ class AccountDialog(QDialog):
 
 
 class BookingDialog(QDialog):
-    """New booking: rules, approval and cost are shown before saving."""
+    """New booking: rules, approval and cost are shown before saving. A
+    session-booked instrument lists its sessions instead of free times."""
 
     def __init__(self, conn, me, instrument_id: int, start: datetime, end: datetime,
                  parent=None):
         super().__init__(parent)
         self.conn, self.me = conn, me
+        self.wanted = (start, end)           # what was dragged: preselects sessions
         self.result_id: int | None = None
         self.result_status = ""
+        self.result_ids: list[int] = []
+        self.result_statuses: list[str] = []
         self.setWindowTitle("Book instrument time")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(520)
         self.instrument = QComboBox()
         for i in conn.execute("SELECT * FROM instruments WHERE active=1 OR id=? ORDER BY name",
                               (instrument_id,)):
@@ -265,66 +270,175 @@ class BookingDialog(QDialog):
         for w in (self.start, self.end):
             w.setCalendarPopup(True)
             w.setDisplayFormat("ddd d MMM yyyy  HH:mm")
+        self.day0, self.day1 = QDateEdit(start.date()), QDateEdit((end - timedelta(minutes=1))
+                                                                  .date())
+        for w in (self.day0, self.day1):
+            w.setCalendarPopup(True)
+            w.setDisplayFormat("ddd d MMM yyyy")
+        self.session_list = QListWidget()
+        self.session_list.setMinimumHeight(150)
         self.purpose = QPlainTextEdit()
         self.purpose.setPlaceholderText("What you will measure, samples")
         self.purpose.setFixedHeight(70)
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.info.setTextFormat(Qt.TextFormat.RichText)
-        form = QFormLayout()
-        form.addRow("Instrument", self.instrument)
+        self.form = QFormLayout()
+        self.form.addRow("Instrument", self.instrument)
         if me["role"] == "admin":
-            form.addRow("For", self.user)
-        form.addRow("Start", self.start)
-        form.addRow("End", self.end)
-        form.addRow("Purpose", self.purpose)
+            self.form.addRow("For", self.user)
+        self.form.addRow("Start", self.start)
+        self.form.addRow("End", self.end)
+        days = QHBoxLayout()
+        days.addWidget(self.day0)
+        days.addWidget(QLabel("to"))
+        days.addWidget(self.day1)
+        self.days_row = QWidget()
+        self.days_row.setLayout(days)
+        days.setContentsMargins(0, 0, 0, 0)
+        self.form.addRow("Sessions from", self.days_row)
+        self.form.addRow("Sessions", self.session_list)
+        self.form.addRow("Purpose", self.purpose)
         self.bb = _buttons(self, "Book")
         self.bb.accepted.connect(self._ok)
         lay = QVBoxLayout(self)
-        lay.addLayout(form)
+        lay.addLayout(self.form)
         lay.addWidget(self.info)
         lay.addWidget(self.bb)
         for sig in (self.instrument.currentIndexChanged, self.user.currentIndexChanged,
-                    self.start.dateTimeChanged, self.end.dateTimeChanged):
+                    self.day0.dateChanged, self.day1.dateChanged):
+            sig.connect(self._rebuild)
+        for sig in (self.start.dateTimeChanged, self.end.dateTimeChanged):
             sig.connect(self._update)
-        self._update()
+        self.session_list.itemChanged.connect(self._update)
+        self._rebuild()
+
+    # -- helpers ----------------------------------------------------------------
+    def _inst(self):
+        return self.conn.execute("SELECT * FROM instruments WHERE id=?",
+                                 (self.instrument.currentData(),)).fetchone()
 
     def _who(self):
         uid = self.user.currentData() if self.me["role"] == "admin" else self.me["id"]
         return self.conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
-    def _update(self, *_):
-        inst = self.conn.execute("SELECT * FROM instruments WHERE id=?",
-                                 (self.instrument.currentData(),)).fetchone()
-        who = self._who()
-        s, e = pdt(self.start.dateTime()), pdt(self.end.dateTime())
-        # the manager's own rights decide the rules; the booker's category the rate
-        errors = logic.check(self.conn, inst, self.me, s, e)
+    def sessions_mode(self) -> bool:
+        return self._inst()["booking_mode"] == "sessions"
+
+    def _show(self, widget, visible: bool):
+        widget.setVisible(visible)
+        label = self.form.labelForField(widget)
+        if label is not None:
+            label.setVisible(visible)
+
+    def _instant(self, inst, who) -> bool:
+        return (self.me["role"] == "admin" or inst["approval"] == "auto" or
+                (inst["approval"] == "trained" and
+                 logic.is_authorised(self.conn, who["id"], inst["id"])))
+
+    def _cost_text(self, inst, who, s: datetime, e: datetime, session_id: int | None) -> tuple:
+        cur = db.setting(self.conn, "currency")
+        price = logic.session_price(self.conn, session_id, who["category"]) if session_id else None
+        if price is not None:
+            return price, f"{cur}{price:,.2f}"
         rate = logic.rate_for(self.conn, inst["id"], who["category"])
         h = logic.hours(self.conn, s, e) if e > s else 0
+        return h * rate, f"{h:g} h × {cur}{rate:,.2f}/h = {cur}{h * rate:,.2f}"
+
+    # -- building -----------------------------------------------------------------
+    def _rebuild(self, *_):
+        sessions = self.sessions_mode()
+        for w in (self.start, self.end):
+            self._show(w, not sessions)
+        self._show(self.days_row, sessions)
+        self._show(self.session_list, sessions)
+        if sessions:
+            self._fill_sessions()
+        self._update()
+
+    def _fill_sessions(self):
+        inst, who = self._inst(), self._who()
+        q0, q1 = self.day0.date(), self.day1.date()
+        d0 = datetime(q0.year(), q0.month(), q0.day())
+        d1 = datetime(q1.year(), q1.month(), q1.day()) + timedelta(days=1)
+        w0, w1 = self.wanted
+        self.session_list.blockSignals(True)
+        self.session_list.clear()
+        for o in logic.occurrences(self.conn, inst["id"], d0, d1):
+            if o.start < d0:            # last night's run belongs to the day before
+                continue
+            errors = logic.check(self.conn, inst, self.me, o.start, o.end)
+            _, cost = self._cost_text(inst, who, o.start, o.end, o.session_id)
+            end = f"{o.end:%H:%M}" + ("" if o.end.date() == o.start.date() else
+                                      f" ({o.end:%a})")
+            text = f"{o.start:%a %d %b}  ·  {o.name}  {o.start:%H:%M}–{end}  ·  {cost}"
+            it = QListWidgetItem(text + (f"  —  {errors[0]}" if errors else ""))
+            it.setData(Qt.ItemDataRole.UserRole, (o.start, o.end, o.session_id))
+            if errors:
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                it.setCheckState(Qt.CheckState.Unchecked)
+            else:
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                hit = o.start < w1 and o.end > w0
+                it.setCheckState(Qt.CheckState.Checked if hit else Qt.CheckState.Unchecked)
+            self.session_list.addItem(it)
+        if not self.session_list.count():
+            it = QListWidgetItem("No sessions on these days.")
+            it.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.session_list.addItem(it)
+        self.session_list.blockSignals(False)
+
+    def chosen(self) -> list[tuple[datetime, datetime, int]]:
+        out = []
+        for r in range(self.session_list.count()):
+            it = self.session_list.item(r)
+            if it.checkState() == Qt.CheckState.Checked and it.data(Qt.ItemDataRole.UserRole):
+                out.append(it.data(Qt.ItemDataRole.UserRole))
+        return out
+
+    def _update(self, *_):
+        inst, who = self._inst(), self._who()
+        instant = self._instant(inst, who)
+        approval = ("Approved at once." if instant else
+                    "<span style='color:#9a6700'>Needs the lab manager's approval.</span>")
         cur = db.setting(self.conn, "currency")
-        instant = (self.me["role"] == "admin" or inst["approval"] == "auto" or
-                   (inst["approval"] == "trained" and logic.is_authorised(self.conn, who["id"],
-                                                                          inst["id"])))
-        lines = [f"{h:.2f} h × {cur}{rate:,.2f}/h = <b>{cur}{h * rate:,.2f}</b>",
-                 "Approved at once." if instant else
-                 "<span style='color:#9a6700'>Needs the lab manager's approval.</span>"]
-        lines += [f"<span style='color:#cf222e'>• {x}</span>" for x in errors]
-        self.info.setText("<br>".join(lines))
         ok = self.bb.button(QDialogButtonBox.StandardButton.Ok)
-        ok.setEnabled(not errors)
+        if self.sessions_mode():
+            picks = self.chosen()
+            total = sum(self._cost_text(inst, who, s, e, sid)[0] for s, e, sid in picks)
+            self.info.setText(f"{len(picks)} session(s) · total <b>{cur}{total:,.2f}</b><br>"
+                              + approval)
+            ok.setEnabled(bool(picks))
+        else:
+            s, e = pdt(self.start.dateTime()), pdt(self.end.dateTime())
+            # the manager's own rights decide the rules; the booker's category the rate
+            errors = logic.check(self.conn, inst, self.me, s, e)
+            _, cost = self._cost_text(inst, who, s, e, None)
+            lines = [f"<b>{cost}</b>", approval]
+            lines += [f"<span style='color:#cf222e'>• {x}</span>" for x in errors]
+            self.info.setText("<br>".join(lines))
+            ok.setEnabled(not errors)
         ok.setText("Book" if instant else "Request approval")
 
     def _ok(self):
         who = self._who()
-        try:
-            res = logic.book(self.conn, self.instrument.currentData(), who["id"],
-                             pdt(self.start.dateTime()), pdt(self.end.dateTime()),
-                             self.purpose.toPlainText(), actor_id=self.me["id"])
-        except logic.BookingError as exc:
-            QMessageBox.warning(self, "Not booked", str(exc))
+        iid = self.instrument.currentData()
+        ranges = ([(s, e) for s, e, _ in self.chosen()] if self.sessions_mode() else
+                  [(pdt(self.start.dateTime()), pdt(self.end.dateTime()))])
+        problems = []
+        for s, e in ranges:
+            try:
+                res = logic.book(self.conn, iid, who["id"], s, e, self.purpose.toPlainText(),
+                                 actor_id=self.me["id"])
+                self.result_ids.append(res.id)
+                self.result_statuses.append(res.status)
+            except logic.BookingError as exc:
+                problems.append(f"{s:%a %d %b %H:%M}: {exc}")
+        if problems:
+            QMessageBox.warning(self, "Not booked", "\n".join(problems))
+        if not self.result_ids:
             return
-        self.result_id, self.result_status = res.id, res.status
+        self.result_id, self.result_status = self.result_ids[0], self.result_statuses[0]
         self.accept()
 
 
@@ -361,6 +475,16 @@ class BookingDetailsDialog(QDialog):
             w.setCalendarPopup(True)
             w.setDisplayFormat("ddd d MMM yyyy  HH:mm")
             w.setEnabled(self.editable)
+        session = conn.execute("SELECT * FROM sessions WHERE id=?",
+                               (b["session_id"],)).fetchone() if b["session_id"] else None
+        if session is not None:
+            # a session booking moves by dragging onto another session; its
+            # times are the session's, so only the manager may type new ones
+            form.addRow("Session", QLabel(f"{session['name']} "
+                                          f"({session['start_time']}–{session['end_time']})"))
+            if not admin:
+                self.start.setEnabled(False)
+                self.end.setEnabled(False)
         form.addRow("Start", self.start)
         form.addRow("End", self.end)
         self.purpose = QPlainTextEdit(b["purpose"] if (admin or mine) else "")
@@ -369,7 +493,7 @@ class BookingDetailsDialog(QDialog):
         if admin or mine:
             form.addRow("Purpose", self.purpose)
             form.addRow("Cost", QLabel(f"{cur}{logic.cost(conn, b):,.2f} "
-                                       f"({cur}{b['rate']:,.2f}/h, {b['category']})"))
+                                       f"({logic.price_label(conn, b)}, {b['category']})"))
         lay = QVBoxLayout(self)
         lay.addLayout(form)
         row = QHBoxLayout()

@@ -44,7 +44,28 @@ CREATE TABLE IF NOT EXISTS instruments (
     max_days_ahead INTEGER NOT NULL DEFAULT 60,
     open_time TEXT NOT NULL DEFAULT '08:00',
     close_time TEXT NOT NULL DEFAULT '20:00',
-    weekends INTEGER NOT NULL DEFAULT 0
+    weekends INTEGER NOT NULL DEFAULT 0,
+    booking_mode TEXT NOT NULL DEFAULT 'free' CHECK (booking_mode IN ('free', 'sessions'))
+);
+
+-- fixed sessions, for instruments booked by session rather than free time;
+-- end_time <= start_time means the session ends the next day (an evening run)
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY,
+    instrument_id INTEGER NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    days TEXT NOT NULL DEFAULT '01234',    -- weekdays it starts on, Monday = 0
+    sort INTEGER NOT NULL DEFAULT 0
+);
+
+-- fixed price per session and user category; no row means the hourly rate applies
+CREATE TABLE IF NOT EXISTS session_prices (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    category TEXT NOT NULL,
+    price REAL NOT NULL,
+    PRIMARY KEY (session_id, category)
 );
 
 -- hourly rate per instrument and user category
@@ -75,7 +96,9 @@ CREATE TABLE IF NOT EXISTS bookings (
     created TEXT NOT NULL,
     decided_by INTEGER REFERENCES users(id),
     decided_at TEXT,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    price REAL                      -- fixed session price; NULL means hours x rate
 );
 CREATE INDEX IF NOT EXISTS bookings_slot ON bookings(instrument_id, start);
 CREATE INDEX IF NOT EXISTS bookings_user ON bookings(user_id, start);
@@ -99,7 +122,26 @@ def connect(path: Path | str) -> sqlite3.Connection:
     return conn
 
 
+# columns added after the first release, so older lab.db files gain them
+MIGRATIONS = [
+    ("instruments", "booking_mode",
+     "TEXT NOT NULL DEFAULT 'free' CHECK (booking_mode IN ('free', 'sessions'))"),
+    ("bookings", "session_id", "INTEGER REFERENCES sessions(id) ON DELETE SET NULL"),
+    ("bookings", "price", "REAL"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, decl in MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init(conn: sqlite3.Connection) -> None:
+    # tables first (CREATE IF NOT EXISTS leaves old ones alone), then new columns
+    conn.executescript(SCHEMA.split("CREATE INDEX")[0])
+    _migrate(conn)
     conn.executescript(SCHEMA)
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))

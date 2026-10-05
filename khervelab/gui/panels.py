@@ -340,9 +340,10 @@ class ReportsDialog(QDialog):
                                    f"{cur}{t.cost:,.2f}"), right=(2, 3, 4))
         self.lines.setRowCount(len(rep.lines))
         for r, ln in enumerate(rep.lines):
-            _put(self.lines, r, (ln.user, ln.instrument, _when(ln.start), _when(ln.end),
-                                 f"{ln.hours:.2f}", f"{cur}{ln.rate:,.2f}",
-                                 f"{cur}{ln.cost:,.2f}"), right=(4, 5, 6))
+            _put(self.lines, r, (ln.user, ln.instrument + (f" · {ln.session}" if ln.session
+                                                           else ""),
+                                 _when(ln.start), _when(ln.end), f"{ln.hours:.2f}",
+                                 ln.basis(cur), f"{cur}{ln.cost:,.2f}"), right=(4, 5, 6))
         for t in (self.by_user, self.lines):
             t.resizeColumnsToContents()
 

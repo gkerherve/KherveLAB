@@ -245,3 +245,71 @@ def test_network_server_serves_the_same_lab(qtbot, lab):
     finally:
         server.stop()
     assert not server.running
+
+
+def make_sessions(lab):
+    conn = lab["conn"]
+    conn.execute("UPDATE instruments SET booking_mode='sessions' WHERE id=?", (lab["nap"],))
+    specs = [logic.SessionSpec(n, s, e, d, {"Internal": 200.0} if n != "Evening and overnight"
+                               else {}) for n, s, e, d in
+             logic.SESSION_TEMPLATES["Two day sessions and an evening run"]]
+    logic.save_sessions(conn, lab["nap"], specs)
+    conn.execute("INSERT INTO rates VALUES (?, 'Internal', 20)", (lab["nap"],))
+    conn.execute("UPDATE instruments SET approval='auto' WHERE id=?", (lab["nap"],))
+
+
+def test_instrument_dialog_sets_up_sessions(qtbot, lab):
+    dlg = InstrumentsDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    for r in range(dlg.list.count()):
+        if dlg.list.item(r).text().startswith("NAP-XPS"):
+            dlg.list.setCurrentRow(r)
+    dlg.mode_sessions.setChecked(True)
+    assert not dlg.slot.isEnabled()
+    dlg.sessions._template(1)                       # two day sessions and an evening run
+    dlg.sessions.table.item(0, dlg.sessions.FIXED).setText("180")   # Internal, morning
+    dlg._save()
+    rows = logic.sessions(lab["conn"], lab["nap"])
+    assert [r["name"] for r in rows] == ["Morning", "Afternoon", "Evening and overnight"]
+    assert logic.session_price(lab["conn"], rows[0]["id"], "Internal") == 180
+    assert logic.session_price(lab["conn"], rows[1]["id"], "Internal") is None
+    mode = lab["conn"].execute("SELECT booking_mode FROM instruments WHERE id=?",
+                               (lab["nap"],)).fetchone()[0]
+    assert mode == "sessions"
+
+
+def test_booking_dialog_lists_and_books_sessions(qtbot, lab):
+    make_sessions(lab)
+    d = weekday()
+    dlg = BookingDialog(lab["conn"], lab["alice"], lab["nap"], at(d, 10), at(d, 14))
+    qtbot.addWidget(dlg)
+    assert dlg.session_list.isVisibleTo(dlg) and not dlg.start.isVisibleTo(dlg)
+    picked = [s.strftime("%H:%M") for s, _, _ in dlg.chosen()]
+    assert picked == ["08:00", "12:30"]             # the two sessions the drag touched
+    assert "£400.00" in dlg.info.text()
+    dlg._ok()
+    assert len(dlg.result_ids) == 2
+    prices = [r[0] for r in lab["conn"].execute("SELECT price FROM bookings ORDER BY start")]
+    assert prices == [200.0, 200.0]
+    again = BookingDialog(lab["conn"], lab["alice"], lab["nap"], at(d, 10), at(d, 11))
+    qtbot.addWidget(again)
+    assert again.chosen() == []                     # morning now taken, shown disabled
+
+
+def test_session_bands_and_snapping(qtbot, lab):
+    make_sessions(lab)
+    d = weekday()
+    res = logic.book(lab["conn"], lab["nap"], lab["alice"]["id"], at(d, 8),
+                     at(d, 12) + timedelta(minutes=30))
+    w = window(qtbot, lab)
+    w.anchor = d
+    w.tabs.setCurrentIndex(1)                       # NAP-XPS tab
+    w.set_mode("week")
+    texts = [i.text() for i in w.tabs.currentWidget().view.scene().items()
+             if hasattr(i, "text") and callable(i.text)]
+    assert any(t.startswith("Morning 08:00") for t in texts)
+    assert "Sessions —" in w.tabs.currentWidget().info.text()
+    # dropped part-way into the afternoon, it snaps to the afternoon session
+    w.move_booking(res.id, at(d, 12), at(d, 16), lab["nap"])
+    b = lab["conn"].execute("SELECT start, end FROM bookings").fetchone()
+    assert (b[0][11:], b[1][11:]) == ("12:30", "17:00")

@@ -52,8 +52,19 @@ Stack:
 
 - Booking creation runs the clash check and the insert inside
   `BEGIN IMMEDIATE`, so two people cannot take one slot.
-- A booking stores the hourly rate in force when it was made, so later rate
-  changes never alter past charges.
+- A booking stores the price in force when it was made, so later price
+  changes never alter past charges:
+  - its hourly `rate`;
+  - for a session booking, also `session_id` and a fixed `price` (NULL means
+    charge hours × rate).
+
+  `logic.cost` is the only place a charge is computed.
+- An instrument's `booking_mode` is `free` or `sessions`. In session mode,
+  users may only book exact session occurrences (`logic.occurrences`): a
+  session belongs to the day it starts, and an end at or before the start is
+  the next day. `logic.book_range` books every free session in a range.
+- New columns go into `db.MIGRATIONS` so that existing `lab.db` files gain
+  them at start-up.
 - Times are lab-local wall clock (`YYYY-MM-DDTHH:MM`). Durations for billing
   go through `logic.hours`, which counts real elapsed time across clock
   changes.

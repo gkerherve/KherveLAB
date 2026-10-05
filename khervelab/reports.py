@@ -39,7 +39,13 @@ class Line:
     rate: float
     cost: float
     purpose: str
+    session: str = ""
+    price: float | None = None     # fixed session price, else charged by the hour
 
+    def basis(self, currency: str) -> str:
+        if self.price is not None:
+            return f"{currency}{self.price:,.2f}/session"
+        return f"{currency}{self.rate:,.2f}/h"
 
 @dataclass
 class Total:
@@ -90,8 +96,8 @@ class Report:
 def build(conn, start: date, end: date, user_id: int | None = None,
           instrument_id: int | None = None) -> Report:
     q = ("SELECT b.*, u.full_name, u.username, u.email, u.group_name, u.category, "
-         "i.name AS instrument FROM bookings b JOIN users u ON u.id=b.user_id "
-         "JOIN instruments i ON i.id=b.instrument_id "
+         "i.name AS instrument, s.name AS session FROM bookings b JOIN users u ON u.id=b.user_id "
+         "JOIN instruments i ON i.id=b.instrument_id LEFT JOIN sessions s ON s.id=b.session_id "
          "WHERE b.status='approved' AND b.start >= ? AND b.start < ?")
     args: list = [start.isoformat(), (end + timedelta(days=1)).isoformat()]
     if user_id:
@@ -106,19 +112,20 @@ def build(conn, start: date, end: date, user_id: int | None = None,
         h = logic.hours(conn, logic.parse(b["start"]), logic.parse(b["end"]))
         rep.lines.append(Line(b["id"], b["user_id"], b["full_name"], b["username"], b["email"],
                               b["group_name"], b["category"], b["instrument"], b["start"],
-                              b["end"], round(h, 2), b["rate"], round(h * b["rate"], 2),
-                              b["purpose"]))
+                              b["end"], round(h, 2), b["rate"], logic.cost(conn, b),
+                              b["purpose"], b["session"] or "", b["price"]))
     return rep
 
 
-HEADER = ["Booking", "User", "Username", "Group", "Category", "Instrument", "Start", "End",
-          "Hours", "Rate per hour", "Cost", "Purpose"]
+HEADER = ["Booking", "User", "Username", "Group", "Category", "Instrument", "Session", "Start",
+          "End", "Hours", "Rate per hour", "Price per session", "Cost", "Purpose"]
 
 
 def _row(ln: Line) -> list:
     return [ln.booking_id, ln.user, ln.username, ln.group, ln.category, ln.instrument,
-            ln.start.replace("T", " "), ln.end.replace("T", " "), ln.hours, ln.rate, ln.cost,
-            ln.purpose]
+            ln.session, ln.start.replace("T", " "), ln.end.replace("T", " "), ln.hours,
+            "" if ln.price is not None else ln.rate,
+            ln.price if ln.price is not None else "", ln.cost, ln.purpose]
 
 
 def to_csv(rep: Report) -> str:
@@ -128,7 +135,7 @@ def to_csv(rep: Report) -> str:
     for ln in rep.lines:
         w.writerow(_row(ln))
     w.writerow([])
-    w.writerow(["", "Total", "", "", "", "", "", "", round(rep.total_hours, 2), "",
+    w.writerow(["", "Total", "", "", "", "", "", "", "", round(rep.total_hours, 2), "", "",
                 rep.total_cost, ""])
     return buf.getvalue()
 
@@ -160,7 +167,7 @@ def to_xlsx(rep: Report) -> bytes:
         c.font = Font(bold=True)
     for ln in rep.lines:
         detail.append(_row(ln))
-    for col, w in zip("ABCDEFGHIJKL", (9, 24, 14, 20, 16, 26, 17, 17, 8, 12, 10, 40)):
+    for col, w in zip("ABCDEFGHIJKLMN", (9, 24, 14, 20, 16, 26, 22, 17, 17, 8, 12, 14, 10, 40)):
         detail.column_dimensions[col].width = w
     detail.freeze_panes = "A2"
     buf = io.BytesIO()
@@ -204,15 +211,17 @@ def to_pdf(rep: Report) -> bytes:
                             + (f" · {u.email}" if u.email else "")
                             + (f" · rate category: {u.category}" if u.category else ""),
                             st["Normal"]), Spacer(1, 5 * mm)]
-        rows = [["Date", "Instrument", "Time", "Hours", f"Rate ({cur}/h)", f"Cost ({cur})"]]
+        rows = [["Date", "Instrument", "Time", "Hours", "Rate", f"Cost ({cur})"]]
         for ln in lines:
             s, e = logic.parse(ln.start), logic.parse(ln.end)
-            rows.append([f"{s:%d %b %Y}", ln.instrument, f"{s:%H:%M}–{e:%H:%M}"
-                         + ("" if e.date() == s.date() else f" (+{(e.date() - s.date()).days} d)"),
-                         f"{ln.hours:.2f}", f"{ln.rate:,.2f}", f"{ln.cost:,.2f}"])
+            when = f"{s:%H:%M}–{e:%H:%M}" + ("" if e.date() == s.date()
+                                             else f" (+{(e.date() - s.date()).days} d)")
+            rows.append([f"{s:%d %b %Y}", ln.instrument + (f" · {ln.session}" if ln.session
+                                                           else ""), when,
+                         f"{ln.hours:.2f}", ln.basis(cur), f"{ln.cost:,.2f}"])
         rows.append(["Total", "", "", f"{sum(l.hours for l in lines):.2f}", "",
                      f"{sum(l.cost for l in lines):,.2f}"])
-        t = Table(rows, colWidths=[24 * mm, 58 * mm, 32 * mm, 18 * mm, 22 * mm, 24 * mm],
+        t = Table(rows, colWidths=[22 * mm, 58 * mm, 30 * mm, 15 * mm, 31 * mm, 22 * mm],
                   repeatRows=1)
         t.setStyle(grid)
         story.append(t)

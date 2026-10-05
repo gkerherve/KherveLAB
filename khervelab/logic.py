@@ -148,6 +148,140 @@ def rates(conn, instrument_id: int) -> dict[str, float]:
 
 # -- bookings ---------------------------------------------------------------------------
 
+# -- sessions -------------------------------------------------------------------------
+
+DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    session_id: int
+    name: str
+    start: datetime
+    end: datetime
+
+
+def sessions(conn, instrument_id: int) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM sessions WHERE instrument_id=? ORDER BY sort, start_time",
+                        (instrument_id,)).fetchall()
+
+
+def session_hours(start_time: str, end_time: str) -> float:
+    """Length on the clock face; an end at or before the start is the next day."""
+    s, e = minutes_of(start_time), minutes_of(end_time)
+    return ((e - s) % 1440 or 1440) / 60
+
+
+def days_label(days: str) -> str:
+    if days == "0123456":
+        return "every day"
+    if days == "01234":
+        return "weekdays"
+    if days == "56":
+        return "weekends"
+    return ", ".join(DAY_NAMES[int(d)] for d in days)
+
+
+def occurrences(conn, instrument_id: int, start: datetime, end: datetime) -> list[Occurrence]:
+    """Session occurrences overlapping [start, end), in time order. A session
+    belongs to the day it starts on, so an evening run that starts Friday is
+    a Friday session even though it ends on Saturday."""
+    out = []
+    rows = sessions(conn, instrument_id)
+    day = start.date() - timedelta(days=1)          # yesterday's evening may run into today
+    while day <= end.date():
+        for s in rows:
+            if str(day.weekday()) not in s["days"]:
+                continue
+            s0 = datetime.combine(day, datetime.min.time()) + timedelta(
+                minutes=minutes_of(s["start_time"]))
+            s1 = s0 + timedelta(hours=session_hours(s["start_time"], s["end_time"]))
+            if s0 < end and s1 > start:
+                out.append(Occurrence(s["id"], s["name"], s0, s1))
+        day += timedelta(days=1)
+    return sorted(out, key=lambda o: o.start)
+
+
+def matching_session(conn, instrument_id: int, start: datetime, end: datetime) -> Occurrence | None:
+    for o in occurrences(conn, instrument_id, start, end):
+        if o.start == start and o.end == end:
+            return o
+    return None
+
+
+def session_price(conn, session_id: int, category: str) -> float | None:
+    r = conn.execute("SELECT price FROM session_prices WHERE session_id=? AND category=?",
+                     (session_id, category)).fetchone()
+    return float(r["price"]) if r else None
+
+
+# ready-made layouts the lab manager can start from and then edit
+SESSION_TEMPLATES = {
+    "Two day sessions and an evening run": [
+        ("Morning", "08:00", "12:30", "01234"),
+        ("Afternoon", "12:30", "17:00", "01234"),
+        ("Evening and overnight", "17:00", "08:00", "01234"),
+    ],
+    "Full day and overnight": [
+        ("Day", "08:00", "17:00", "01234"),
+        ("Overnight", "17:00", "08:00", "01234"),
+    ],
+    "24-hour runs, every day": [
+        ("24 h run", "08:00", "08:00", "0123456"),
+    ],
+    "Half days": [
+        ("Morning", "09:00", "13:00", "01234"),
+        ("Afternoon", "13:00", "17:00", "01234"),
+    ],
+}
+
+
+@dataclass
+class SessionSpec:
+    name: str
+    start_time: str
+    end_time: str
+    days: str
+    prices: dict[str, float | None]        # category -> fixed price, None = hourly rate
+    id: int | None = None
+
+
+def save_sessions(conn, instrument_id: int, specs: list[SessionSpec]) -> None:
+    """Replace an instrument's sessions. Kept ids stay (bookings point at
+    them); removed sessions are deleted and their bookings keep their price."""
+    for sp in specs:
+        if not sp.name.strip():
+            raise ValueError("every session needs a name")
+        if not set(sp.days) <= set("0123456") or not sp.days:
+            raise ValueError(f"session {sp.name!r} must run on at least one day")
+        for t in (sp.start_time, sp.end_time):
+            h, m = t.split(":")
+            if not (0 <= int(h) < 24 and 0 <= int(m) < 60):
+                raise ValueError(f"session {sp.name!r}: {t} is not a time")
+    keep = {sp.id for sp in specs if sp.id}
+    for r in sessions(conn, instrument_id):
+        if r["id"] not in keep:
+            conn.execute("DELETE FROM sessions WHERE id=?", (r["id"],))
+    for n, sp in enumerate(specs):
+        days = "".join(sorted(set(sp.days)))
+        if sp.id:
+            conn.execute("UPDATE sessions SET name=?, start_time=?, end_time=?, days=?, sort=? "
+                         "WHERE id=? AND instrument_id=?",
+                         (sp.name.strip(), sp.start_time, sp.end_time, days, n, sp.id,
+                          instrument_id))
+            sid = sp.id
+        else:
+            sid = conn.execute("INSERT INTO sessions (instrument_id, name, start_time, end_time, "
+                               "days, sort) VALUES (?,?,?,?,?,?)",
+                               (instrument_id, sp.name.strip(), sp.start_time, sp.end_time, days,
+                                n)).lastrowid
+        conn.execute("DELETE FROM session_prices WHERE session_id=?", (sid,))
+        for cat, price in sp.prices.items():
+            if price is not None:
+                conn.execute("INSERT INTO session_prices (session_id, category, price) "
+                             "VALUES (?,?,?)", (sid, cat, max(0.0, float(price))))
+
+
 def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: datetime,
           exclude: int | None = None, now: datetime | None = None) -> list[str]:
     """Every reason the slot cannot be booked; empty when it can. The
@@ -157,6 +291,7 @@ def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: date
         return ["the end must be after the start"]
     admin = user["role"] == "admin"
     now = now or now_local(conn)
+    minutes = None
     if not inst["active"]:
         errors.append(f"{inst['name']} is not available for booking")
     if not admin:
@@ -164,7 +299,13 @@ def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: date
             errors.append("the start is in the past")
         if start > now + timedelta(days=inst["max_days_ahead"]):
             errors.append(f"bookings open {inst['max_days_ahead']} days ahead")
-        minutes = (end - start).total_seconds() / 60
+        if inst["booking_mode"] == "sessions":
+            if matching_session(conn, inst["id"], start, end) is None:
+                errors.append(f"{inst['name']} is booked by session; choose one of its sessions")
+            minutes = None
+        else:
+            minutes = (end - start).total_seconds() / 60
+    if not admin and minutes is not None:
         if minutes < inst["min_minutes"]:
             errors.append(f"the shortest booking is {inst['min_minutes']} min")
         if minutes > inst["max_minutes"]:
@@ -235,17 +376,56 @@ def book(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
         else:
             status = "pending"
         rate = rate_for(conn, instrument_id, user["category"])
+        session_id, price = _session_and_price(conn, inst, start, end, user["category"])
         stamp = fmt(now_local(conn))
         cur = conn.execute(
             "INSERT INTO bookings (instrument_id, user_id, start, end, purpose, status, rate, "
-            "created, decided_by, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "created, decided_by, decided_at, session_id, price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (instrument_id, user_id, fmt(start), fmt(end), purpose.strip(), status, rate, stamp,
-             actor["id"] if actor is not user else None, stamp if status == "approved" else None))
+             actor["id"] if actor is not user else None, stamp if status == "approved" else None,
+             session_id, price))
         conn.execute("COMMIT")
         return Created(cur.lastrowid, status)
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def _session_and_price(conn, inst, start: datetime, end: datetime,
+                       category: str) -> tuple[int | None, float | None]:
+    """The session a booking fills, and its fixed price for the user's category
+    (None: charged by the hour)."""
+    if inst["booking_mode"] != "sessions":
+        return None, None
+    occ = matching_session(conn, inst["id"], start, end)
+    if occ is None:          # the lab manager blocking free-form time
+        return None, None
+    return occ.session_id, session_price(conn, occ.session_id, category)
+
+
+def book_range(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
+               purpose: str = "", actor_id: int | None = None) -> tuple[list[Created], list[str]]:
+    """Book every free session of a session-booked instrument that overlaps
+    the range (one booking per session), or the range itself otherwise.
+    Returns what was booked and why anything was not."""
+    inst = conn.execute("SELECT * FROM instruments WHERE id=?", (instrument_id,)).fetchone()
+    if inst is None:
+        raise BookingError("unknown instrument")
+    if inst["booking_mode"] != "sessions":
+        return [book(conn, instrument_id, user_id, start, end, purpose, actor_id=actor_id)], []
+    made, problems = [], []
+    occs = occurrences(conn, instrument_id, start, end)
+    if not occs:
+        raise BookingError(f"no {inst['name']} session falls in that time")
+    for o in occs:
+        try:
+            made.append(book(conn, instrument_id, user_id, o.start, o.end, purpose,
+                             actor_id=actor_id))
+        except BookingError as exc:
+            problems.append(f"{o.name} {o.start:%a %d %b %H:%M}: {exc}")
+    if not made:
+        raise BookingError("; ".join(problems))
+    return made, problems
 
 
 def decide(conn, booking_id: int, admin_id: int, approve: bool, note: str = "") -> None:
@@ -304,10 +484,12 @@ def reschedule(conn, booking_id: int, user: sqlite3.Row, start: datetime, end: d
         else:
             status = "pending"
         rate = rate_for(conn, iid, owner["category"]) if iid != b["instrument_id"] else b["rate"]
+        session_id, price = _session_and_price(conn, inst, start, end, owner["category"])
         conn.execute("UPDATE bookings SET instrument_id=?, start=?, end=?, status=?, rate=?, "
-                     "purpose=? WHERE id=?",
+                     "purpose=?, session_id=?, price=? WHERE id=?",
                      (iid, fmt(start), fmt(end), status, rate,
-                      b["purpose"] if purpose is None else purpose.strip(), booking_id))
+                      b["purpose"] if purpose is None else purpose.strip(), session_id, price,
+                      booking_id))
         conn.execute("COMMIT")
         return status
     except Exception:
@@ -315,5 +497,15 @@ def reschedule(conn, booking_id: int, user: sqlite3.Row, start: datetime, end: d
         raise
 
 
-def cost(conn, b: sqlite3.Row) -> float:
+def cost(conn, b) -> float:
+    """A session's fixed price, or the hours actually elapsed at the hourly rate."""
+    if b["price"] is not None:
+        return round(b["price"], 2)
     return round(hours(conn, parse(b["start"]), parse(b["end"])) * b["rate"], 2)
+
+
+def price_label(conn, b) -> str:
+    cur = db.setting(conn, "currency")
+    if b["price"] is not None:
+        return f"{cur}{b['price']:,.2f} per session"
+    return f"{cur}{b['rate']:,.2f}/h"

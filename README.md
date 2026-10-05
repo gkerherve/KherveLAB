@@ -60,6 +60,51 @@ your choice with `--data FOLDER`.
   this month's total. **Lab ▸ My statement** saves your own PDF, Excel or CSV
   statement.
 
+## Sessions
+
+An instrument is booked in one of two ways:
+
+- **Free time.** People choose a start and an end, in slots such as 30
+  minutes, between the opening hours.
+- **Fixed sessions.** People book whole sessions that the lab manager
+  defines. For example, a NAP-XPS might run three sessions on weekdays:
+  - Morning, 08:00–12:30 (4.5 h)
+  - Afternoon, 12:30–17:00 (4.5 h)
+  - Evening and overnight, 17:00–08:00 (15 h)
+
+To set up sessions, go to **Instruments ▸ How it is booked ▸ Fixed
+sessions**. You can start from a template and edit it:
+
+- two day sessions and an evening run;
+- a full day and overnight;
+- 24-hour runs;
+- half days.
+
+For each session you set:
+
+- **Name.**
+- **Start and end time.** An end at or before the start runs into the next
+  day.
+- **Days it runs on.**
+- **A fixed price for each user category**, so internal and external users
+  can pay different prices. If you leave a price empty, that category pays
+  the instrument's hourly rate × the session's length.
+
+How sessions look and behave:
+
+- **On the instrument's calendar,** each session is a labelled band, and
+  everything outside the sessions is shaded closed.
+- **Booking:** dragging across the calendar opens the booking window with
+  every session your drag touched already ticked. The window lists the
+  sessions on the chosen days with your price for each, greys out the ones
+  already taken, and shows the total.
+- **Each session is its own booking,** so it is approved and billed on its
+  own.
+- **Moving:** dragging a session booking moves it to the session it is
+  dropped on.
+- **The lab manager** can still block free-form time on a session instrument,
+  for example for maintenance.
+
 ## The lab manager
 
 The manager sees everything the users see, plus the following:
@@ -72,10 +117,12 @@ The manager sees everything the users see, plus the following:
     - *Automatic for trained users*: trained users book at once; everyone else
       waits for you.
     - *Manual*: every booking waits for you.
+  - **How it is booked:** free time or fixed sessions (see Sessions).
   - **Hourly rate for each user category.** The defaults are Internal,
     External academic and Industry; you can change them in Lab settings.
   - **Booking rules**: slot, shortest and longest booking, how far ahead,
-    opening hours or around the clock, and weekends.
+    opening hours or around the clock, and weekends. With fixed sessions,
+    only "how far ahead" applies.
   - **Trained users.**
 - **Users**: approve, disable or edit accounts, set rate categories and
   training, reset passwords, or add a co-manager.
@@ -98,9 +145,11 @@ approved and charged at the person's rate.
 
 Billing rules:
 
-- A booking keeps the hourly rate in force when it was made, so changing a
-  rate never rewrites past charges.
-- Only approved bookings are charged, by the time actually elapsed.
+- A booking keeps the price in force when it was made (a session price or an
+  hourly rate), so changing prices never rewrites past charges.
+- Only approved bookings are charged: a session at its fixed price, anything
+  else by the time actually elapsed.
+- Statements name each session.
 
 ## Without a screen
 

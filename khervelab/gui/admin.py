@@ -37,6 +37,140 @@ def _time(hhmm: str) -> QTime:
     return QTime(min(h, 23), m if h < 24 else 59)
 
 
+class DaysPicker(QWidget):
+    """Seven toggles, Monday first."""
+
+    def __init__(self, days: str = "01234", parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 0, 2, 0)
+        lay.setSpacing(1)
+        self.boxes = []
+        for n, name in enumerate(logic.DAY_NAMES):
+            cb = QCheckBox(name[:2])
+            cb.setChecked(str(n) in days)
+            lay.addWidget(cb)
+            self.boxes.append(cb)
+
+    def days(self) -> str:
+        return "".join(str(n) for n, cb in enumerate(self.boxes) if cb.isChecked())
+
+
+class SessionsEditor(QWidget):
+    """Table of an instrument's sessions with a fixed price per user category;
+    an empty price means that category pays the hourly rate."""
+
+    FIXED = 4   # name, starts, ends, days; then one price column per category
+
+    def __init__(self, conn, parent=None):
+        super().__init__(parent)
+        self.conn = conn
+        self.cats = db.categories(conn)
+        cur = db.setting(conn, "currency")
+        self.table = QTableWidget(0, self.FIXED + len(self.cats))
+        self.table.setHorizontalHeaderLabels(["Session", "Starts", "Ends", "Days"]
+                                             + [f"{c} ({cur})" for c in self.cats])
+        self.table.verticalHeader().hide()
+        self.table.setMinimumHeight(150)
+        self.template = QComboBox()
+        self.template.addItem("Start from a template…")
+        for name in logic.SESSION_TEMPLATES:
+            self.template.addItem(name)
+        self.template.activated.connect(self._template)
+        add, rem = QPushButton("Add session"), QPushButton("Remove selected")
+        add.clicked.connect(lambda: self.add_row("New session", "08:00", "12:00", "01234", {}))
+        rem.clicked.connect(self._remove)
+        row = QHBoxLayout()
+        row.addWidget(add)
+        row.addWidget(rem)
+        row.addStretch(1)
+        row.addWidget(self.template)
+        hint = QLabel("Times are 24 h (HH:MM). An end at or before the start runs into the next "
+                      "day, e.g. 17:00 → 08:00. Leave a price empty to charge that category the "
+                      "hourly rate.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #57606a;")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.table)
+        lay.addLayout(row)
+        lay.addWidget(hint)
+
+    def load(self, instrument_id: int):
+        self.table.setRowCount(0)
+        for r in logic.sessions(self.conn, instrument_id):
+            prices = {c: logic.session_price(self.conn, r["id"], c) for c in self.cats}
+            self.add_row(r["name"], r["start_time"], r["end_time"], r["days"], prices, r["id"])
+
+    def add_row(self, name, start, end, days, prices, sid=None):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        it = QTableWidgetItem(name)
+        it.setData(Qt.ItemDataRole.UserRole, sid)
+        self.table.setItem(r, 0, it)
+        self.table.setItem(r, 1, QTableWidgetItem(start))
+        self.table.setItem(r, 2, QTableWidgetItem(end))
+        self.table.setCellWidget(r, 3, DaysPicker(days))
+        for n, c in enumerate(self.cats):
+            p = prices.get(c)
+            self.table.setItem(r, self.FIXED + n, QTableWidgetItem("" if p is None else f"{p:.2f}"))
+        self.table.resizeColumnsToContents()
+
+    def _remove(self):
+        for r in sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True):
+            self.table.removeRow(r)
+
+    def _template(self, index: int):
+        if index <= 0:
+            return
+        name = self.template.itemText(index)
+        if self.table.rowCount() and QMessageBox.question(
+                self, "Sessions", f"Replace the sessions with “{name}”?") \
+                != QMessageBox.StandardButton.Yes:
+            self.template.setCurrentIndex(0)
+            return
+        self.table.setRowCount(0)
+        for n, st, en, days in logic.SESSION_TEMPLATES[name]:
+            self.add_row(n, st, en, days, {})
+        self.template.setCurrentIndex(0)
+
+    def specs(self) -> list[logic.SessionSpec]:
+        out = []
+        for r in range(self.table.rowCount()):
+            def text(c):
+                it = self.table.item(r, c)
+                return it.text().strip() if it else ""
+            prices = {}
+            for n, c in enumerate(self.cats):
+                t = text(self.FIXED + n).replace(",", "")
+                try:
+                    prices[c] = float(t) if t else None
+                except ValueError:
+                    raise ValueError(f"row {r + 1}: price {t!r} for {c} is not a number") \
+                        from None
+            start, end = text(1), text(2)
+            for t in (start, end):
+                if not _valid_time(t):
+                    raise ValueError(f"row {r + 1}: {t!r} is not a time like 08:00")
+            out.append(logic.SessionSpec(text(0), _norm_time(start), _norm_time(end),
+                                         self.table.cellWidget(r, 3).days(), prices,
+                                         self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)))
+        return out
+
+
+def _valid_time(t: str) -> bool:
+    try:
+        h, m = t.split(":")
+        return 0 <= int(h) < 24 and 0 <= int(m) < 60
+    except ValueError:
+        return False
+
+
+def _norm_time(t: str) -> str:
+    h, m = t.split(":")
+    return f"{int(h):02d}:{int(m):02d}"
+
+
 class InstrumentsDialog(QDialog):
     def __init__(self, conn, parent=None):
         super().__init__(parent)
@@ -80,7 +214,8 @@ class InstrumentsDialog(QDialog):
             al.addWidget(rb)
 
         cur = db.setting(conn, "currency")
-        rates = QGroupBox(f"Hourly rate ({cur}/h) by user category")
+        rates = QGroupBox(f"Hourly rate ({cur}/h) by user category (sessions without a fixed "
+                          "price use it too)")
         self.rate_form = QFormLayout(rates)
         self.rates: dict[str, QDoubleSpinBox] = {}
         for c in db.categories(conn):
@@ -90,6 +225,19 @@ class InstrumentsDialog(QDialog):
             sb.setPrefix(cur)
             self.rates[c] = sb
             self.rate_form.addRow(c, sb)
+
+        mode = QGroupBox("How it is booked")
+        ml = QVBoxLayout(mode)
+        self.mode_free = QRadioButton("Free time: people choose start and end, in slots")
+        self.mode_sessions = QRadioButton("Fixed sessions: people book whole sessions "
+                                          "(e.g. morning, afternoon, overnight)")
+        self.mode_group = QButtonGroup(self)
+        for rb in (self.mode_free, self.mode_sessions):
+            self.mode_group.addButton(rb)
+            ml.addWidget(rb)
+        self.sessions = SessionsEditor(conn)
+        ml.addWidget(self.sessions)
+        self.mode_sessions.toggled.connect(self._mode_changed)
 
         rules = QGroupBox("Booking rules (the lab manager is exempt)")
         rg = QGridLayout(rules)
@@ -126,6 +274,7 @@ class InstrumentsDialog(QDialog):
         fl = QVBoxLayout(form)
         fl.addLayout(basics)
         fl.addWidget(appr)
+        fl.addWidget(mode)
         fl.addWidget(rates)
         fl.addWidget(rules)
         fl.addWidget(trained)
@@ -198,6 +347,9 @@ class InstrumentsDialog(QDialog):
         self.open_t.setTime(_time("08:00" if all_day else i["open_time"]))
         self.close_t.setTime(_time("20:00" if all_day else i["close_time"]))
         self.weekends.setChecked(bool(i["weekends"]))
+        (self.mode_sessions if i["booking_mode"] == "sessions" else self.mode_free).setChecked(True)
+        self.sessions.load(i["id"])
+        self._mode_changed()
         trained = {r[0] for r in self.conn.execute(
             "SELECT user_id FROM authorised WHERE instrument_id=?", (i["id"],))}
         self.trained.clear()
@@ -208,6 +360,17 @@ class InstrumentsDialog(QDialog):
             it.setCheckState(Qt.CheckState.Checked if u["id"] in trained
                              else Qt.CheckState.Unchecked)
             self.trained.addItem(it)
+
+    def _mode_changed(self, *_):
+        sessions = self.mode_sessions.isChecked()
+        self.sessions.setVisible(sessions)
+        # in session mode the sessions fix the times; only "book ahead" still applies
+        for w in (self.slot, self.min, self.max, self.open_t, self.close_t, self.all_day,
+                  self.weekends):
+            w.setEnabled(not sessions)
+        if not sessions:
+            self.open_t.setEnabled(not self.all_day.isChecked())
+            self.close_t.setEnabled(not self.all_day.isChecked())
 
     def _add(self):
         iid = logic.add_instrument(self.conn, "New instrument", "", "manual", "#1f6feb", "08:00",
@@ -240,14 +403,23 @@ class InstrumentsDialog(QDialog):
                 QMessageBox.warning(self, "Instrument", "Closing must be after opening.")
                 return
         approval = next(k for k, b in self.approval_btns.items() if b.isChecked())
+        booking_mode = "sessions" if self.mode_sessions.isChecked() else "free"
+        try:
+            specs = self.sessions.specs()
+            if booking_mode == "sessions" and not specs:
+                raise ValueError("Add at least one session, or book this instrument by free time.")
+            logic.save_sessions(self.conn, self.current, specs)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Sessions", str(exc))
+            return
         self.conn.execute(
             "UPDATE instruments SET name=?, description=?, location=?, colour=?, active=?, "
             "approval=?, slot_minutes=?, min_minutes=?, max_minutes=?, max_days_ahead=?, "
-            "open_time=?, close_time=?, weekends=? WHERE id=?",
+            "open_time=?, close_time=?, weekends=?, booking_mode=? WHERE id=?",
             (name, self.description.toPlainText().strip(), self.location.text().strip(),
              self.colour, int(self.active.isChecked()), approval, self.slot.value(),
              self.min.value(), self.max.value(), self.ahead.value(), o, c,
-             int(self.weekends.isChecked()), self.current))
+             int(self.weekends.isChecked()), booking_mode, self.current))
         for cat, sb in self.rates.items():
             self.conn.execute("INSERT INTO rates (instrument_id, category, rate) VALUES (?,?,?) "
                               "ON CONFLICT(instrument_id, category) DO UPDATE SET rate=excluded.rate",

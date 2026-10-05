@@ -63,3 +63,5 @@ button.link { border:0; background:none; color:var(--accent); padding:0; font-we
 dl.facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; }
 dl.facts dt { color:var(--muted); } dl.facts dd { margin:0; }
 footer { color:var(--muted); font-size:.8rem; text-align:center; padding:20px; }
+.fc .fc-bg-event.session { opacity:.14; }
+.fc .fc-bg-event.session .fc-event-title { color:var(--fg); font-size:.75rem; opacity:1; font-style:normal; }

@@ -232,8 +232,16 @@ def create_app(data_dir: Path | str) -> Flask:
     @login_required
     def instrument(iid: int):
         inst = instrument_or_404(iid)
-        return render_template("instrument.html", inst=inst,
-                               my_rate=logic.rate_for(g.db, iid, g.user["category"]),
+        my_rate = logic.rate_for(g.db, iid, g.user["category"])
+        sessions = []
+        for r in logic.sessions(g.db, iid) if inst["booking_mode"] == "sessions" else []:
+            price = logic.session_price(g.db, r["id"], g.user["category"])
+            hrs = logic.session_hours(r["start_time"], r["end_time"])
+            sessions.append({"name": r["name"], "start": r["start_time"], "end": r["end_time"],
+                             "days": logic.days_label(r["days"]),
+                             "cost": price if price is not None else hrs * my_rate,
+                             "fixed": price is not None})
+        return render_template("instrument.html", inst=inst, my_rate=my_rate, sessions=sessions,
                                trained=logic.is_authorised(g.db, g.user["id"], iid))
 
     @app.route("/book", methods=["POST"])
@@ -249,15 +257,21 @@ def create_app(data_dir: Path | str) -> Flask:
             flash("Choose a start and an end time.", "error")
             return redirect(url_for("instrument", iid=iid))
         try:
-            res = logic.book(g.db, iid, g.user["id"], start, end, f.get("purpose", ""))
+            made, problems = logic.book_range(g.db, iid, g.user["id"], start, end,
+                                              f.get("purpose", ""))
         except logic.BookingError as exc:
             flash(f"Not booked: {exc}.", "error")
             return redirect(url_for("instrument", iid=iid, date=start.date().isoformat()))
-        if res.status == "approved":
-            flash(f"Booked {inst['name']}, {start:%a %d %b %H:%M}–{end:%H:%M}.", "ok")
+        what = (f"{len(made)} {inst['name']} sessions" if inst["booking_mode"] == "sessions"
+                and len(made) > 1 else f"{inst['name']}, {start:%a %d %b %H:%M}–{end:%H:%M}"
+                if inst["booking_mode"] == "free" else f"the {inst['name']} session")
+        if all(m.status == "approved" for m in made):
+            flash(f"Booked {what}.", "ok")
         else:
-            flash(f"Request sent for {inst['name']}, {start:%a %d %b %H:%M}–{end:%H:%M}. "
-                  "It shows as pending until the lab manager approves it.", "ok")
+            flash(f"Request sent for {what}. It shows as pending until the lab manager "
+                  "approves it.", "ok")
+        for p in problems:
+            flash(f"Not booked: {p}.", "error")
         return redirect(url_for("instrument", iid=iid, date=start.date().isoformat()))
 
     @app.route("/api/events")
@@ -287,6 +301,13 @@ def create_app(data_dir: Path | str) -> Flask:
             out.append({"id": b["id"], "title": title, "start": b["start"], "end": b["end"],
                         "color": b["colour"], "classNames": [b["status"]] + (["mine"] if mine
                                                                              else [])})
+        if iid:
+            inst = g.db.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
+            if inst and inst["booking_mode"] == "sessions":
+                for o in logic.occurrences(g.db, iid, start, end):
+                    out.append({"start": logic.fmt(o.start), "end": logic.fmt(o.end),
+                                "display": "background", "color": inst["colour"],
+                                "title": o.name, "classNames": ["session"]})
         return jsonify(out)
 
     @app.route("/bookings")

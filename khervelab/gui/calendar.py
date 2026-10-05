@@ -232,7 +232,9 @@ class CalendarView(QGraphicsView):
             if col.day == today and (self.mode == WEEK or self.single):
                 sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.today)).setZValue(-3)
             inst = self._inst(col.instrument) if (self.single or self.mode == DAY) else None
-            if inst is not None:
+            if inst is not None and inst["booking_mode"] == "sessions":
+                self._draw_sessions(inst, col.day, x)
+            elif inst is not None:
                 for slot in range(48):
                     if self._closed(inst, col.day, slot * 30):
                         sc.addRect(QRectF(x, HEADER + slot * ROW, self.colw, ROW), none,
@@ -245,6 +247,33 @@ class CalendarView(QGraphicsView):
         for i in range(len(self.columns) + 1):
             x = GUTTER + i * self.colw
             sc.addLine(x, HEADER, x, HEADER + DAY_H, hour).setZValue(-1)
+
+    def _draw_sessions(self, inst, day: date, x: float) -> None:
+        """Outside sessions is closed; each session is an open band, labelled,
+        with a line where one session hands over to the next."""
+        sc, c = self.scene(), self.colours
+        none = QPen(Qt.PenStyle.NoPen)
+        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.closed)).setZValue(-2.5)
+        d0, d1 = self._at(day, 0), self._at(day, 1440)
+        edge = QColor(inst["colour"])
+        tint = QColor(inst["colour"])
+        tint.setAlpha(18)
+        small = QFont()
+        small.setPointSizeF(7.5)
+        for o in logic.occurrences(self.conn, inst["id"], d0, d1):
+            s, e = max(o.start, d0), min(o.end, d1)
+            m0 = (s - d0).total_seconds() / 60
+            m1 = (e - d0).total_seconds() / 60
+            r = QRectF(x + 1, HEADER + m0 * PPM, self.colw - 2, (m1 - m0) * PPM)
+            sc.addRect(r, none, QColor(c.background)).setZValue(-2)
+            sc.addRect(r, none, tint).setZValue(-1.9)
+            if o.start >= d0:                       # the session starts here: mark and name it
+                sc.addLine(x + 1, r.top(), x + self.colw - 1, r.top(),
+                           QPen(edge, 1.5)).setZValue(-0.5)
+                t = sc.addSimpleText(f"{o.name} {o.start:%H:%M}–{o.end:%H:%M}", small)
+                t.setBrush(QColor(c.muted))
+                t.setPos(x + self.colw - t.boundingRect().width() - 4, r.top() + 1)
+                t.setZValue(-0.5)
 
     def _segments(self) -> list[Segment]:
         first, last = self.columns[0].day, self.columns[-1].day

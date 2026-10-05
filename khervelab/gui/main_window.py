@@ -240,13 +240,24 @@ class MainWindow(QMainWindow):
         hours = ("around the clock" if inst["open_time"] == "00:00" and
                  inst["close_time"] in ("24:00", "23:59") else
                  f"{inst['open_time']}–{inst['close_time']}")
-        bits = [f"<b>{html.escape(inst['name'])}</b>",
-                html.escape(inst["description"]) if inst["description"] else "",
-                f"{cur}{rate:,.2f}/h for you",
-                "books at once" if instant else
-                "<span style='color:#9a6700'>bookings need approval</span>",
-                f"{hours}, {'every day' if inst['weekends'] else 'weekdays'}",
-                f"{inst['min_minutes']}–{inst['max_minutes']} min"]
+        approval = ("books at once" if instant else
+                    "<span style='color:#9a6700'>bookings need approval</span>")
+        head = [f"<b>{html.escape(inst['name'])}</b>",
+                html.escape(inst["description"]) if inst["description"] else "", approval]
+        if inst["booking_mode"] == "sessions":
+            parts = []
+            for r in logic.sessions(self.conn, inst["id"]):
+                price = logic.session_price(self.conn, r["id"], self.me["category"])
+                h = logic.session_hours(r["start_time"], r["end_time"])
+                cost = (f"{cur}{price:,.2f}" if price is not None else
+                        f"{cur}{h * rate:,.2f} ({cur}{rate:,.2f}/h)")
+                parts.append(f"{html.escape(r['name'])} {r['start_time']}–{r['end_time']} "
+                             f"{logic.days_label(r['days'])}: {cost}")
+            return " · ".join(b for b in head if b) + "<br>Sessions — " + \
+                ("; ".join(parts) if parts else "none defined yet")
+        bits = head + [f"{cur}{rate:,.2f}/h for you",
+                       f"{hours}, {'every day' if inst['weekends'] else 'weekdays'}",
+                       f"{inst['min_minutes']}–{inst['max_minutes']} min"]
         return " · ".join(b for b in bits if b)
 
     # -- navigation -------------------------------------------------------------
@@ -289,18 +300,34 @@ class MainWindow(QMainWindow):
 
     def create_booking(self, iid: int, start: datetime, end: datetime):
         inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
-        if inst is not None and (end - start) < timedelta(minutes=inst["min_minutes"]):
+        if inst is not None and inst["booking_mode"] == "free" and \
+                (end - start) < timedelta(minutes=inst["min_minutes"]):
             end = start + timedelta(minutes=inst["min_minutes"])
         dlg = BookingDialog(self.conn, self.me, iid, start, end, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            if dlg.result_status == "pending":
-                self.statusBar().showMessage("Request sent: it shows dashed until the lab "
-                                             "manager approves it.", 8000)
+            n = len(dlg.result_ids)
+            what = f"{n} sessions" if n > 1 else "Booking"
+            if "pending" in dlg.result_statuses:
+                self.statusBar().showMessage(f"{what} requested: shown dashed until the lab "
+                                             "manager approves.", 8000)
             else:
-                self.statusBar().showMessage("Booked.", 5000)
+                self.statusBar().showMessage(f"{what} booked.", 5000)
         self.refresh()
 
     def move_booking(self, bid: int, start: datetime, end: datetime, iid: int):
+        inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
+        if inst["booking_mode"] == "sessions":
+            # snap to the session the dragged booking now sits in (its middle)
+            mid = start + (end - start) / 2
+            occ = [o for o in logic.occurrences(self.conn, iid, mid, mid + timedelta(minutes=1))
+                   if o.start <= mid < o.end]
+            if occ:
+                start, end = occ[0].start, occ[0].end
+            elif not self.admin:
+                QMessageBox.warning(self, "Not moved", "Drop the booking onto one of the "
+                                    f"{inst['name']} sessions.")
+                self.refresh()
+                return
         try:
             status = logic.reschedule(self.conn, bid, self.me, start, end, iid)
             if status == "pending":
