@@ -313,3 +313,26 @@ def test_session_bands_and_snapping(qtbot, lab):
     w.move_booking(res.id, at(d, 12), at(d, 16), lab["nap"])
     b = lab["conn"].execute("SELECT start, end FROM bookings").fetchone()
     assert (b[0][11:], b[1][11:]) == ("12:30", "17:00")
+
+
+def test_durations_in_minutes_or_hours_up_to_a_day(qtbot, lab):
+    from khervelab.gui.admin import DurationEdit
+    w = DurationEdit(1440)
+    qtbot.addWidget(w)
+    w.setMinutes(270)
+    assert w.unit.currentText() == "h" and w.value_box.value() == 4.5
+    w.unit.setCurrentIndex(0)                       # switch to minutes: same length
+    assert w.value_box.value() == 270 and w.minutes() == 270
+    w.unit.setCurrentIndex(1)
+    w.value_box.setValue(30)                        # clamped to 24 h
+    assert w.minutes() == 1440
+    dlg = InstrumentsDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    dlg.slot.setMinutes(1440)
+    dlg.min.setMinutes(1440)
+    dlg.max.setMinutes(4320)
+    dlg._save()
+    iid = dlg.current
+    row = lab["conn"].execute("SELECT slot_minutes, min_minutes, max_minutes FROM instruments "
+                              "WHERE id=?", (iid,)).fetchone()
+    assert tuple(row) == (1440, 1440, 4320)

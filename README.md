@@ -120,9 +120,19 @@ The manager sees everything the users see, plus the following:
   - **How it is booked:** free time or fixed sessions (see Sessions).
   - **Hourly rate for each user category.** The defaults are Internal,
     External academic and Industry; you can change them in Lab settings.
-  - **Booking rules**: slot, shortest and longest booking, how far ahead,
-    opening hours or around the clock, and weekends. With fixed sessions,
-    only "how far ahead" applies.
+  - **Booking rules**:
+    - **Lengths:** slot, shortest and longest booking, each entered in minutes
+      or hours.
+    - **Slot and shortest** go up to 24 h; the longest can span several days
+      on an around-the-clock instrument.
+    - **Slot grid:** slots are counted from the opening time (from midnight
+      for around-the-clock instruments), and a booking is a whole number of
+      slots. For example, a 4.5 h slot on an instrument opening at 08:00
+      gives 08:00, 12:30 and 17:00.
+    - **Other rules:** how far ahead, opening hours or around the clock, and
+      weekends.
+
+    With fixed sessions, only "how far ahead" applies.
   - **Trained users.**
 - **Users**: approve, disable or edit accounts, set rate categories and
   training, reset passwords, or add a co-manager.

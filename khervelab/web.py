@@ -600,8 +600,8 @@ def _instrument_form(f) -> tuple:
         except ValueError:
             raise ValueError(f"{key.replace('_', ' ')} must be a whole number") from None
     slot = num("slot_minutes", 30)
-    if 1440 % slot:
-        raise ValueError("The slot length must divide a day (e.g. 15, 30, 60).")
+    if slot > 1440:
+        raise ValueError("The slot can be at most 24 hours (1440 min).")
     mn, mx = num("min_minutes", 30), num("max_minutes", 480)
     if mn > mx:
         raise ValueError("The shortest booking is longer than the longest.")

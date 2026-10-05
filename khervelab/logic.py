@@ -67,6 +67,30 @@ def fmt(dt: datetime) -> str:
     return dt.strftime(FMT)
 
 
+def fmt_duration(minutes: float) -> str:
+    """30 min, 4.5 h, 24 h, 1 h 15 min."""
+    minutes = int(round(minutes))
+    if minutes < 60:
+        return f"{minutes} min"
+    h, m = divmod(minutes, 60)
+    if m == 0:
+        return f"{h} h"
+    if m in (15, 30, 45):
+        return f"{minutes / 60:g} h"
+    return f"{h} h {m} min"
+
+
+def slot_origin(inst) -> str:
+    """Slots are counted from opening time each day, so a 4.5 h slot on an
+    instrument opening at 08:00 gives 08:00, 12:30, 17:00."""
+    return "00:00" if inst["open_time"] == "00:00" else inst["open_time"]
+
+
+def on_slot(inst, t: datetime) -> bool:
+    origin = minutes_of(slot_origin(inst))
+    return ((t.hour * 60 + t.minute) - origin) % inst["slot_minutes"] == 0
+
+
 def minutes_of(hhmm: str) -> int:
     h, m = hhmm.strip().split(":")
     return int(h) * 60 + int(m)
@@ -307,14 +331,15 @@ def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: date
             minutes = (end - start).total_seconds() / 60
     if not admin and minutes is not None:
         if minutes < inst["min_minutes"]:
-            errors.append(f"the shortest booking is {inst['min_minutes']} min")
+            errors.append(f"the shortest booking is {fmt_duration(inst['min_minutes'])}")
         if minutes > inst["max_minutes"]:
-            errors.append(f"the longest booking is {inst['max_minutes']} min")
+            errors.append(f"the longest booking is {fmt_duration(inst['max_minutes'])}")
         slot = inst["slot_minutes"]
-        for t in (start, end):
-            if (t.hour * 60 + t.minute) % slot:
-                errors.append(f"times must fall on {slot}-minute slots")
-                break
+        if not on_slot(inst, start):
+            errors.append(f"bookings start on {fmt_duration(slot)} slots counted from "
+                          f"{slot_origin(inst)}")
+        elif minutes % slot:
+            errors.append(f"the length must be a whole number of {fmt_duration(slot)} slots")
         open_t, close_t = inst["open_time"], inst["close_time"]
         last_day = (end - timedelta(minutes=1)).date()
         day = start.date()

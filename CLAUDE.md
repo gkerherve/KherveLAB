@@ -63,6 +63,11 @@ Stack:
   users may only book exact session occurrences (`logic.occurrences`): a
   session belongs to the day it starts, and an end at or before the start is
   the next day. `logic.book_range` books every free session in a range.
+- Free-time slots are counted from the instrument's opening time
+  (`logic.slot_origin`; midnight when around the clock). The start must be
+  on that grid and the length a whole number of slots. Slot and shortest
+  are at most 24 h; lengths are stored in minutes and shown with
+  `logic.fmt_duration`.
 - New columns go into `db.MIGRATIONS` so that existing `lab.db` files gain
   them at start-up.
 - Times are lab-local wall clock (`YYYY-MM-DDTHH:MM`). Durations for billing

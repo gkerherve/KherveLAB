@@ -30,7 +30,7 @@
   <h2 style="margin-top:0">Booking rules</h2>
   <p class="small muted">Rules apply to users; the lab manager can book anything that does not clash.</p>
   <div class="row">
-    <div><label>Slot (min)</label><input type="number" name="slot_minutes" min="5" value="{{ inst.slot_minutes if inst else 30 }}"></div>
+    <div><label>Slot (min, up to 1440)</label><input type="number" name="slot_minutes" min="1" max="1440" value="{{ inst.slot_minutes if inst else 30 }}"></div>
     <div><label>Shortest booking (min)</label><input type="number" name="min_minutes" min="1" value="{{ inst.min_minutes if inst else 30 }}"></div>
     <div><label>Longest booking (min)</label><input type="number" name="max_minutes" min="1" value="{{ inst.max_minutes if inst else 480 }}"></div>
     <div><label>Days ahead</label><input type="number" name="max_days_ahead" min="1" value="{{ inst.max_days_ahead if inst else 60 }}"></div>

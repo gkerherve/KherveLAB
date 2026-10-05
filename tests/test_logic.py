@@ -237,3 +237,36 @@ def test_manager_books_on_behalf_of_a_user(conn):
     assert res.status == "approved" and b["user_id"] == corp and b["rate"] == 200
     with pytest.raises(logic.BookingError, match="only the lab manager"):
         logic.book(conn, i, corp, nextweekday(9), nextweekday(10), actor_id=user(conn, "x"))
+
+
+def test_long_slots_count_from_opening_time(conn):
+    # 4.5 h slots on an instrument open 08:00-17:00: 08:00-12:30 and 12:30-17:00
+    i = mk_inst(conn, "auto", slot_minutes=270, min_minutes=270, max_minutes=540,
+                open_time="08:00", close_time="17:00")
+    u = user(conn)
+    d = nextweekday(0)
+    assert logic.book(conn, i, u, d.replace(hour=8), d.replace(hour=12, minute=30)).status \
+        == "approved"
+    logic.book(conn, i, u, d.replace(hour=12, minute=30), d.replace(hour=17))
+    with pytest.raises(logic.BookingError, match="slots counted from 08:00"):
+        logic.book(conn, i, user(conn, "bob"), d.replace(hour=9) + timedelta(days=1),
+                   d.replace(hour=13, minute=30) + timedelta(days=1))
+
+
+def test_24_hour_slot_and_overnight_9_hour_run(conn):
+    i = mk_inst(conn, "auto", slot_minutes=1440, min_minutes=1440, max_minutes=4320,
+                open_time="00:00", close_time="24:00", weekends=1)
+    u = user(conn)
+    d = nextweekday(0)
+    logic.book(conn, i, u, d, d + timedelta(days=1))
+    with pytest.raises(logic.BookingError, match="whole number"):
+        logic.book(conn, i, u, d + timedelta(days=1), d + timedelta(days=2, hours=12))
+    j = mk_inst(conn, "auto", name="TGA", slot_minutes=540, min_minutes=540, max_minutes=1440,
+                open_time="00:00", close_time="24:00", weekends=1)
+    # 9 h slots from midnight: 00:00, 09:00, 18:00; an 18:00 run ends 03:00 next day
+    logic.book(conn, j, u, d.replace(hour=18), d.replace(hour=3) + timedelta(days=1))
+
+
+def test_fmt_duration():
+    assert [logic.fmt_duration(m) for m in (30, 60, 270, 540, 1440, 75)] == \
+        ["30 min", "1 h", "4.5 h", "9 h", "24 h", "1.25 h"]

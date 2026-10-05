@@ -37,6 +37,50 @@ def _time(hhmm: str) -> QTime:
     return QTime(min(h, 23), m if h < 24 else 59)
 
 
+class DurationEdit(QWidget):
+    """A length entered in minutes or hours, always stored in minutes."""
+
+    def __init__(self, max_minutes: int = 1440, parent=None):
+        super().__init__(parent)
+        self.max_minutes = max_minutes
+        self.value_box = QDoubleSpinBox()
+        self.unit = QComboBox()
+        self.unit.addItem("min", 1)
+        self.unit.addItem("h", 60)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        lay.addWidget(self.value_box, 1)
+        lay.addWidget(self.unit)
+        self.unit.currentIndexChanged.connect(self._unit_changed)
+        self._factor = 1
+        self._apply_limits()
+
+    def _apply_limits(self):
+        f = self.unit.currentData()
+        self.value_box.setDecimals(0 if f == 1 else 2)
+        self.value_box.setSingleStep(5 if f == 1 else 0.5)
+        self.value_box.setRange(1 / f, self.max_minutes / f)
+
+    def _unit_changed(self, *_):
+        minutes = self.value_box.value() * self._factor
+        self._factor = self.unit.currentData()
+        self._apply_limits()
+        self.value_box.setValue(minutes / self._factor)
+
+    def minutes(self) -> int:
+        return int(round(self.value_box.value() * self.unit.currentData()))
+
+    def setMinutes(self, minutes: int):
+        hours = minutes >= 60 and minutes % 15 == 0
+        self.unit.blockSignals(True)
+        self.unit.setCurrentIndex(1 if hours else 0)
+        self.unit.blockSignals(False)
+        self._factor = self.unit.currentData()
+        self._apply_limits()
+        self.value_box.setValue(minutes / self._factor)
+
+
 class DaysPicker(QWidget):
     """Seven toggles, Monday first."""
 
@@ -241,11 +285,13 @@ class InstrumentsDialog(QDialog):
 
         rules = QGroupBox("Booking rules (the lab manager is exempt)")
         rg = QGridLayout(rules)
-        self.slot, self.min, self.max, self.ahead = (QSpinBox() for _ in range(4))
-        for w, lo, hi, suf in ((self.slot, 5, 240, " min"), (self.min, 1, 100000, " min"),
-                               (self.max, 1, 100000, " min"), (self.ahead, 1, 3650, " days")):
-            w.setRange(lo, hi)
-            w.setSuffix(suf)
+        # slot and shortest up to a day; longest can span days on around-the-clock
+        # instruments (e.g. a 72 h thermal run)
+        self.slot, self.min = DurationEdit(1440), DurationEdit(1440)
+        self.max = DurationEdit(60 * 24 * 30)
+        self.ahead = QSpinBox()
+        self.ahead.setRange(1, 3650)
+        self.ahead.setSuffix(" days")
         self.open_t, self.close_t = QTimeEdit(), QTimeEdit()
         for w in (self.open_t, self.close_t):
             w.setDisplayFormat("HH:mm")
@@ -263,6 +309,12 @@ class InstrumentsDialog(QDialog):
         rg.addWidget(self.close_t, 2, 3)
         rg.addWidget(self.all_day, 3, 0, 1, 4)
         rg.addWidget(self.weekends, 4, 0, 1, 4)
+        hint = QLabel("Slots are counted from the opening time (from midnight when open around "
+                      "the clock), and a booking is a whole number of slots: a 4.5 h slot on an "
+                      "instrument opening at 08:00 gives 08:00, 12:30 and 17:00.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #57606a;")
+        rg.addWidget(hint, 5, 0, 1, 4)
 
         trained = QGroupBox("Trained users (book at once with 'automatic for trained users')")
         tl = QVBoxLayout(trained)
@@ -338,9 +390,9 @@ class InstrumentsDialog(QDialog):
         self.approval_btns[i["approval"]].setChecked(True)
         for c, sb in self.rates.items():
             sb.setValue(logic.rate_for(self.conn, i["id"], c))
-        self.slot.setValue(i["slot_minutes"])
-        self.min.setValue(i["min_minutes"])
-        self.max.setValue(i["max_minutes"])
+        self.slot.setMinutes(i["slot_minutes"])
+        self.min.setMinutes(i["min_minutes"])
+        self.max.setMinutes(i["max_minutes"])
         self.ahead.setValue(i["max_days_ahead"])
         all_day = i["open_time"] == "00:00" and i["close_time"] in ("24:00", "23:59")
         self.all_day.setChecked(all_day)
@@ -387,11 +439,8 @@ class InstrumentsDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Instrument", "Give the instrument a name.")
             return
-        if 1440 % self.slot.value():
-            QMessageBox.warning(self, "Instrument", "The slot must divide a day "
-                                "(e.g. 15, 30, 60 min).")
-            return
-        if self.min.value() > self.max.value():
+        slot, shortest, longest = self.slot.minutes(), self.min.minutes(), self.max.minutes()
+        if shortest > longest:
             QMessageBox.warning(self, "Instrument", "The shortest booking is longer than the "
                                 "longest.")
             return
@@ -417,8 +466,8 @@ class InstrumentsDialog(QDialog):
             "approval=?, slot_minutes=?, min_minutes=?, max_minutes=?, max_days_ahead=?, "
             "open_time=?, close_time=?, weekends=?, booking_mode=? WHERE id=?",
             (name, self.description.toPlainText().strip(), self.location.text().strip(),
-             self.colour, int(self.active.isChecked()), approval, self.slot.value(),
-             self.min.value(), self.max.value(), self.ahead.value(), o, c,
+             self.colour, int(self.active.isChecked()), approval, slot, shortest, longest,
+             self.ahead.value(), o, c,
              int(self.weekends.isChecked()), booking_mode, self.current))
         for cat, sb in self.rates.items():
             self.conn.execute("INSERT INTO rates (instrument_id, category, rate) VALUES (?,?,?) "

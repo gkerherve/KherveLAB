@@ -257,7 +257,9 @@ class MainWindow(QMainWindow):
                 ("; ".join(parts) if parts else "none defined yet")
         bits = head + [f"{cur}{rate:,.2f}/h for you",
                        f"{hours}, {'every day' if inst['weekends'] else 'weekdays'}",
-                       f"{inst['min_minutes']}–{inst['max_minutes']} min"]
+                       f"{logic.fmt_duration(inst['min_minutes'])}–"
+                       f"{logic.fmt_duration(inst['max_minutes'])} in "
+                       f"{logic.fmt_duration(inst['slot_minutes'])} slots"]
         return " · ".join(b for b in bits if b)
 
     # -- navigation -------------------------------------------------------------

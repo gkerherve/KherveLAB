@@ -164,6 +164,11 @@ class CalendarView(QGraphicsView):
         inst = self._inst(self.columns[col].instrument)
         return inst["slot_minutes"] if inst else 30
 
+    def _origin(self, col: int) -> int:
+        """Minute of the day the slot grid starts from (the opening time)."""
+        inst = self._inst(self.columns[col].instrument)
+        return logic.minutes_of(logic.slot_origin(inst)) if inst else 0
+
     # -- data ------------------------------------------------------------------
     def bookings(self, start: datetime, end: datetime) -> list[dict]:
         if not self.instruments:
@@ -520,8 +525,8 @@ class CalendarView(QGraphicsView):
         else:
             if not self.columns[col].instrument:
                 return
-            g = self._slot(col)
-            m0 = int(minutes // g * g)
+            g, o = self._slot(col), self._origin(col)
+            m0 = int(o + (minutes - o) // g * g)
             self._drag = {"mode": "create", "col": col, "m0": m0, "m1": m0 + g, "moved": False}
         self._show_ghost()
 
@@ -534,7 +539,8 @@ class CalendarView(QGraphicsView):
         g = self._slot(d["col"])
         m = self._minutes_at(pos.y())
         if d["mode"] == "create":
-            d["m1"] = min(1440, max(d["m0"] + g, self._snap(m, g)))
+            # whole slots from the start; a long slot may run past midnight
+            d["m1"] = d["m0"] + g * max(1, round((m - d["m0"]) / g))
         else:
             d["m_now"] = m
             col = self._col_at(pos.x())
@@ -583,7 +589,7 @@ class CalendarView(QGraphicsView):
         if not d or d["mode"] == "open":
             return
         if d["mode"] == "create":
-            col, m0, m1 = d["col"], d["m0"], d["m1"]
+            col, m0, m1 = d["col"], max(0, d["m0"]), min(1440, d["m1"])
         else:
             if not d["moved"]:
                 return
