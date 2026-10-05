@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
-from . import schedule
+from . import logbook, schedule
 from .config import FacilityConfig, booking_from_dict, booking_yaml, load_config, user_to_dict
 from .models import Booking, Instrument, User
 from .repo import ConflictError, FacilityRepo
@@ -70,7 +70,8 @@ class FacilityService:
                                        f"unknown instrument {b.instrument}")]
         return schedule.check(b, inst, self.bookings(b.instrument), self.tz,
                               now or datetime.now(timezone.utc),
-                              user=self.users.get(b.user), ignore=ignore)
+                              user=self.users.get(b.user), ignore=ignore,
+                              downtime=logbook.downtime(self.cfg.logs, inst.id, self.tz))
 
     def path_of(self, b: Booking) -> str:
         return b.path(self.tz).as_posix()
@@ -187,7 +188,37 @@ class FacilityService:
         return True
 
     def statuses(self) -> dict:
-        return {}
+        from ..publish.build import InstrumentStatus
+        out = {}
+        for inst in self.instruments.values():
+            st = logbook.instrument_status(inst, self.cfg.logs)
+            out[inst.id] = InstrumentStatus(st.available, st.text)
+        return out
+
+    # -- logbook ----------------------------------------------------------
+    def add_log(self, entry: "logbook.LogEntry") -> "logbook.LogEntry":
+        if entry.instrument not in self.instruments:
+            raise ValueError(f"unknown instrument {entry.instrument}")
+        rel = logbook.log_path(entry.instrument, entry.time, self.tz)
+        self.repo.write_file(rel, logbook.month_file_text(self.repo.read_file(rel), entry))
+        self.repo.commit(logbook.commit_message(entry), [rel])
+        self.cfg.logs = sorted([*self.cfg.logs, entry], key=lambda e: e.time)
+        return entry
+
+    def log(self, instrument: str, type: str, text: str = "", user: str = "",
+            when: datetime | None = None, **kw) -> "logbook.LogEntry":
+        when = when or datetime.now(self.tz).replace(second=0, microsecond=0)
+        if type == "fault":
+            kw.setdefault("status", "open")
+            kw.setdefault("fault", logbook.new_id())
+        return self.add_log(logbook.LogEntry(id=logbook.new_id(), instrument=instrument, type=type,
+                                             time=when, user=user, text=text, **kw))
+
+    def update_fault(self, fault: "logbook.Fault", status: str, text: str = "",
+                     blocking: bool | None = None, back=None, user: str = ""):
+        return self.log(fault.instrument, "fault_update", text, user=user, fault=fault.id,
+                        status=status, blocking=fault.blocking if blocking is None else blocking,
+                        back=back)
 
     # -- sync -------------------------------------------------------------
     def sync(self):

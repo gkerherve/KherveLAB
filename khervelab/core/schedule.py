@@ -102,6 +102,7 @@ def check(
     now: datetime,
     user: User | None = None,
     ignore: Booking | None = None,
+    downtime: Iterable[tuple[datetime, datetime | None, str]] = (),
 ) -> list[Violation]:
     """Every rule the booking breaks. `ignore` is the booking being edited,
     so moving a booking never clashes with its own old position."""
@@ -133,6 +134,13 @@ def check(
     g = inst.slot_granularity_minutes
     if not (on_granularity(b.start, g, tz) and on_granularity(b.end, g, tz)):
         out.append(Violation("granularity", WARN, f"times snap to {g}-minute slots"))
+
+    if b.kind not in ("maintenance", "blocked"):
+        for start, end, reason in downtime:
+            if b.end > start and (end is None or b.start < end):
+                until = f" until {end.astimezone(tz):%d %b}" if end else ""
+                out.append(Violation("fault", BLOCK,
+                                     f"{inst.name} is down{until}: {reason}"))
 
     for o in others:
         if b.overlaps(o):

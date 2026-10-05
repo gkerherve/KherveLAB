@@ -271,6 +271,7 @@ class FacilityConfig:
     instruments: dict[str, Instrument] = field(default_factory=dict)
     users: dict[str, User] = field(default_factory=dict)
     bookings: dict[str, Booking] = field(default_factory=dict)  # repo path -> booking
+    logs: list = field(default_factory=list)                     # logbook.LogEntry, by time
 
 
 def load_config(root: Path) -> FacilityConfig:
@@ -294,4 +295,9 @@ def load_config(root: Path) -> FacilityConfig:
         if rel != expected:
             raise ConfigError(p, f"booking file should be at {expected}", "start")
         cfg.bookings[rel] = b
+    from .logbook import load_logs
+    cfg.logs = load_logs(root)
+    for e in cfg.logs:
+        if e.instrument not in cfg.instruments:
+            raise ConfigError(root / "logs" / e.instrument, f"unknown instrument {e.instrument!r}")
     return cfg

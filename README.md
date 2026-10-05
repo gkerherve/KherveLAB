@@ -136,6 +136,38 @@ The **People** menu also has:
 The backup prompt is insistent on purpose. It appears every 10th launch, and
 whenever the last backup is more than 30 days old.
 
+## Instrument logbook (Phase 5)
+
+Press **Log…** (Ctrl+L) to open a quick-entry dialog with the instrument
+already selected. Entry types:
+
+- usage (unbooked hours)
+- fault
+- repair
+- calibration
+- consumable change
+- bake-out
+- maintenance done
+- counter correction
+- note
+
+Entries are appended to `logs/<instrument>/<YYYY-MM>.yaml`, one file per
+instrument per month, and each one is one commit.
+
+- **Consumable counters** add up the hours since the consumable was last
+  changed. They count booked time already elapsed, logged usage and manual
+  corrections. Logging 4 h of usage advances the X-ray source counter by 4 h.
+  Each counter turns amber at `warn_at` and red at the limit.
+- **Maintenance due dates** come from the last completed entry for each task
+  in `instruments/*.yaml`.
+- **Faults** move from open to in progress to resolved, with notes at each
+  step. While a fault marked *blocking* is open, new bookings are refused,
+  apart from maintenance. The public calendar then shows a status line such
+  as "XPS — down, ion gun replacement, back Thursday 8 Oct".
+- **Dashboard** (Ctrl+D) shows one card per instrument: its status,
+  consumable hours against the limit, maintenance due in the next 30 days
+  and open faults.
+
 ## The facility repository
 
 ```
@@ -143,6 +175,9 @@ facility.yaml              name, organisation, timezone
 instruments/<id>.yaml      one file per instrument: rules, colour, consumables, maintenance
 users/u-0001.yaml          anonymous id, display string, permissions — no names or emails
 bookings/<inst>/<YYYY>/<MM>/<inst>-<YYYY-MM-DD>-<HHMM>.yaml
+logs/<inst>/<YYYY-MM>.yaml logbook entries, appended
+docs/                      the published calendar (generated)
+.github/ISSUE_TEMPLATE/    the booking-request form
 ```
 
 A booking's filename encodes its instrument and its local start time. Two people

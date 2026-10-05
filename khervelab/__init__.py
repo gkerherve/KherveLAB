@@ -8,6 +8,6 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
-__version__ = "0.4"
+__version__ = "0.5"
 __app_name__ = "KherveLAB"
 __author__ = "Gwilherm Kerherve"

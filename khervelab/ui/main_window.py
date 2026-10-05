@@ -31,6 +31,7 @@ from . import theme
 from .booking_dialog import BookingDialog
 from .calendar_view import DAY, MONTH, WEEK, CalendarView
 from .dialogs import ClashDialog, ConflictDialog, SetupDialog
+from .logbook_ui import Dashboard
 from .requests_panel import RequestsPanel
 from . import people as people_ui
 
@@ -155,6 +156,15 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.requests_dock)
         self.requests_dock.hide()
 
+        self.dashboard = Dashboard(self.svc, self._me)
+        self.dashboard.changed.connect(self._after_change)
+        self.dashboard_dock = QDockWidget("Instrument dashboard", self)
+        self.dashboard_dock.setObjectName("dashboard")
+        self.dashboard_dock.setWidget(self.dashboard)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dashboard_dock)
+        self.resizeDocks([self.dashboard_dock], [380], Qt.Orientation.Horizontal)
+        self.dashboard_dock.hide()
+
     def _build_actions(self):
         tb = QToolBar("Navigation")
         tb.setMovable(False)
@@ -204,6 +214,12 @@ class MainWindow(QMainWindow):
         self.a_requests.setText("Requests")
         self.a_requests.setShortcut(QKeySequence("Ctrl+Shift+R"))
         tb.addAction(self.a_requests)
+        self.a_dashboard = self.dashboard_dock.toggleViewAction()
+        self.a_dashboard.setText("Dashboard")
+        self.a_dashboard.setShortcut(QKeySequence("Ctrl+D"))
+        tb.addAction(self.a_dashboard)
+        tb.addAction(act("Log…", lambda: self.dashboard.quick_log(self.current), "Ctrl+L",
+                         "Quick logbook entry: usage, fault, repair, calibration… (Ctrl+L)"))
 
         # bare keys act only while the calendar has focus, so the sidebar
         # keeps its own arrow-key navigation
@@ -324,9 +340,14 @@ class MainWindow(QMainWindow):
         maint = "".join(f"<li>{e(m.task)}: every {m.interval_days} d</li>" for m in inst.maintenance)
         source = ("listed by the Department of Materials" if inst.source == "materials-website"
                   else "added to the catalogue")
+        from ..core.logbook import instrument_status
+        st = instrument_status(inst, self.svc.cfg.logs)
+        status_html = (f"<p style='color:{'#1a7f37' if st.available else '#cf222e'};"
+                       f"font-weight:600'>{e(st.text)}</p>")
         self.details.setHtml(
             f"<h3 style='margin:0'><span style='color:{inst.colour}'>■</span> {e(inst.name)}</h3>"
             f"<p style='color:#57606a;margin:2px 0'>{e(inst.make_model or '')}</p>"
+            + status_html +
             f"<p>{e(inst.description)}</p>"
             f"<p><b>Facility:</b> {e(inst.facility)}<br><b>Category:</b> {e(inst.category)}<br>"
             f"<b>Techniques:</b> {e(', '.join(inst.techniques))}</p>"
@@ -345,6 +366,9 @@ class MainWindow(QMainWindow):
                        key=lambda i: (self.svc.instruments[i].facility, self.svc.instruments[i].name))
         insts = [self.svc.instruments[i] for i in order]
         self.calendar.names = self.store.names() if self.store else {}
+        if hasattr(self, "dashboard"):
+            self.dashboard.svc = self.svc
+            self.dashboard.set_instruments(order)
         self.calendar.set_state(self.svc, insts, self.current, self.anchor, self.mode, self.colours)
         first, last = self.calendar.visible_range()
         if self.mode == DAY:
@@ -356,6 +380,7 @@ class MainWindow(QMainWindow):
         else:
             text = f"{first:%B %Y}"
         self.range_label.setText(text)
+        self._show_details()
         self._update_status()
 
     def _step(self, direction: int):
@@ -633,6 +658,7 @@ class MainWindow(QMainWindow):
             self.repo = dlg.repo
             self.svc = FacilityService(self.repo)
             self.requests.set_service(self.svc)
+            self.dashboard.svc = self.svc
             self.setWindowTitle(f"{__app_name__} v{__version__} — {self.svc.cfg.facility.name}")
             self._populate_sidebar()
             self.refresh()

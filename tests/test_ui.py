@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("pytestqt")
 
 from PyQt6.QtCore import QPoint, QSettings, Qt  # noqa: E402
+from PyQt6.QtWidgets import QLabel  # noqa: E402
 
 from khervelab.core.facility import FacilityService  # noqa: E402
 from khervelab.core.models import Booking, User  # noqa: E402
@@ -209,3 +210,20 @@ def test_fresh_install_without_local_db_shows_display_strings(window):
     window.refresh()
     (item,) = booking_items(window)
     assert "AB group" in item.toolTip()
+
+
+def test_quick_log_fault_shows_on_dashboard(window, qtbot):
+    from khervelab.ui.logbook_ui import InstrumentCard, QuickLogDialog
+    dlg = QuickLogDialog(window.svc, "xps", "u-0001", kind="fault")
+    qtbot.addWidget(dlg)
+    dlg.text.setText("ion gun replacement")
+    dlg.blocking.setChecked(True)
+    dlg._ok()
+    assert dlg.entry is not None and dlg.entry.blocking
+    window.dashboard_dock.show()
+    window.refresh()
+    cards = window.dashboard.findChildren(InstrumentCard)
+    assert cards
+    text = " ".join(l.text() for c in cards for l in c.findChildren(QLabel))
+    assert "down, ion gun replacement" in text
+    assert "down, ion gun replacement" in window.details.toPlainText()
