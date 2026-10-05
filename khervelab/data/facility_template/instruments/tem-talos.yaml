@@ -1,0 +1,34 @@
+id: tem-talos
+name: TFS Talos (S)TEM
+make_model: Thermo Fisher Talos
+category: Transmission electron microscopy
+facility: Electron Microscopy Facility
+techniques:
+  - TEM
+  - STEM
+  - EDS mapping
+description: Analytical (S)TEM with fast EDS mapping.
+colour: '#8250df'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 08:00-20:00
+  tue:
+    - 08:00-20:00
+  wed:
+    - 08:00-20:00
+  thu:
+    - 08:00-20:00
+  fri:
+    - 08:00-20:00
+slot_granularity_minutes: 30
+min_booking_minutes: 60
+max_booking_minutes: 600
+max_advance_days: 28
+max_concurrent_per_user: 2
+requires_permission: true
+consumables: []
+maintenance:
+  - task: Service visit
+    interval_days: 365

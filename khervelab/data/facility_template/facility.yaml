@@ -1,0 +1,6 @@
+# KherveLAB facility file. Edit this and instruments/*.yaml to adopt
+# KherveLAB for another facility.
+name: Department of Materials — shared instruments
+organisation: Imperial College London
+timezone: Europe/London
+contact: ''

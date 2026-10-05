@@ -1,0 +1,35 @@
+id: bet
+name: Gas sorption analyser (BET)
+make_model: ''
+category: Gas sorption
+facility: Advanced Photoelectron Spectroscopy Laboratory
+techniques:
+  - BET surface area
+  - pore size (BJH)
+description: 'N2/Ar/CO2 physisorption: surface area and porosity.'
+colour: '#9a6700'
+location: ''
+source: added
+bookable_hours:
+  mon:
+    - 00:00-24:00
+  tue:
+    - 00:00-24:00
+  wed:
+    - 00:00-24:00
+  thu:
+    - 00:00-24:00
+  fri:
+    - 00:00-24:00
+  sat:
+    - 00:00-24:00
+  sun:
+    - 00:00-24:00
+slot_granularity_minutes: 60
+min_booking_minutes: 120
+max_booking_minutes: 4320
+max_advance_days: 42
+max_concurrent_per_user: 2
+requires_permission: true
+consumables: []
+maintenance: []

@@ -1,0 +1,32 @@
+id: uts
+name: Universal testing machine (100 kN)
+make_model: ''
+category: Mechanical testing
+facility: Shared characterisation lab
+techniques:
+  - tensile
+  - compression
+  - flexure
+description: Screw-driven load frame with extensometer and furnace.
+colour: '#57606a'
+location: ''
+source: added
+bookable_hours:
+  mon:
+    - 08:00-20:00
+  tue:
+    - 08:00-20:00
+  wed:
+    - 08:00-20:00
+  thu:
+    - 08:00-20:00
+  fri:
+    - 08:00-20:00
+slot_granularity_minutes: 30
+min_booking_minutes: 30
+max_booking_minutes: 480
+max_advance_days: 28
+max_concurrent_per_user: 2
+requires_permission: true
+consumables: []
+maintenance: []

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "khervelab"
+dynamic = ["version"]
+description = "Instrument booking and facility management for shared research labs, kept in Git."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Gwilherm Kerherve" }]
+dependencies = [
+    "PyQt6>=6.5",
+    "ruamel.yaml>=0.18",
+    "GitPython>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt>=4.4", "pyinstaller>=6.0"]
+
+[project.gui-scripts]
+khervelab = "khervelab.app:main"
+
+[tool.setuptools.packages.find]
+include = ["khervelab*"]
+
+[tool.setuptools.package-data]
+khervelab = ["data/facility_template/**/*", "data/facility_template/**/.gitkeep"]
+
+[tool.setuptools.dynamic]
+version = { attr = "khervelab.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

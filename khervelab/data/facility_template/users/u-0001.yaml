@@ -1,0 +1,5 @@
+# Users are anonymous ids. Names and emails never go in this repository.
+id: u-0001
+display: Facility manager
+permissions: []
+manager: true

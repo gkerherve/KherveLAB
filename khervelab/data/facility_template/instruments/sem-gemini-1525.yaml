@@ -1,0 +1,36 @@
+id: sem-gemini-1525
+name: Zeiss LEO Gemini 1525 FEG-SEM
+make_model: Zeiss LEO Gemini 1525
+category: Scanning electron microscopy
+facility: Electron Microscopy Facility
+techniques:
+  - SEM
+  - EDS
+description: Field-emission SEM for high-resolution imaging and EDS.
+colour: '#2da44e'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 08:00-20:00
+  tue:
+    - 08:00-20:00
+  wed:
+    - 08:00-20:00
+  thu:
+    - 08:00-20:00
+  fri:
+    - 08:00-20:00
+slot_granularity_minutes: 30
+min_booking_minutes: 30
+max_booking_minutes: 480
+max_advance_days: 28
+max_concurrent_per_user: 3
+requires_permission: true
+consumables:
+  - name: FEG emitter
+    limit_hours: 15000
+    warn_at: 14000
+maintenance:
+  - task: Service visit
+    interval_days: 365

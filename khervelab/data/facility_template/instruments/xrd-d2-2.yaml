@@ -1,0 +1,37 @@
+id: xrd-d2-2
+name: 'Bruker D2 Phaser #2'
+make_model: Bruker D2 Phaser
+category: X-ray diffraction
+facility: X-ray Diffraction Facility
+techniques:
+  - powder XRD
+description: Desktop diffractometer for rapid routine phase ID.
+colour: '#d4a72c'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 00:00-24:00
+  tue:
+    - 00:00-24:00
+  wed:
+    - 00:00-24:00
+  thu:
+    - 00:00-24:00
+  fri:
+    - 00:00-24:00
+  sat:
+    - 00:00-24:00
+  sun:
+    - 00:00-24:00
+slot_granularity_minutes: 30
+min_booking_minutes: 30
+max_booking_minutes: 240
+max_advance_days: 28
+max_concurrent_per_user: 4
+requires_permission: false
+consumables:
+  - name: Cu X-ray tube
+    limit_hours: 20000
+    warn_at: 18000
+maintenance: []

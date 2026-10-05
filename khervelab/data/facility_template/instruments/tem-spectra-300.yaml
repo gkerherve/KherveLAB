@@ -1,0 +1,34 @@
+id: tem-spectra-300
+name: TFS Spectra 300 (S)TEM
+make_model: Thermo Fisher Spectra 300
+category: Transmission electron microscopy
+facility: Centre for Cryo Microscopy of Materials (I(CM)²)
+techniques:
+  - aberration-corrected STEM
+  - monochromated EELS
+  - cryo-TEM
+description: Monochromated, aberration-corrected (S)TEM with EELS and cryo-holders.
+colour: '#8250df'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 08:00-20:00
+  tue:
+    - 08:00-20:00
+  wed:
+    - 08:00-20:00
+  thu:
+    - 08:00-20:00
+  fri:
+    - 08:00-20:00
+slot_granularity_minutes: 30
+min_booking_minutes: 120
+max_booking_minutes: 600
+max_advance_days: 28
+max_concurrent_per_user: 2
+requires_permission: true
+consumables: []
+maintenance:
+  - task: Service visit
+    interval_days: 182

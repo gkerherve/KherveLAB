@@ -1,0 +1,36 @@
+id: sem-jeol-6010
+name: JEOL JSM-6010LA SEM
+make_model: JEOL JSM-6010LA
+category: Scanning electron microscopy
+facility: Electron Microscopy Facility
+techniques:
+  - SEM
+  - EDS
+description: Tungsten-filament benchtop SEM with integrated EDS for routine imaging and teaching.
+colour: '#2da44e'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 08:00-20:00
+  tue:
+    - 08:00-20:00
+  wed:
+    - 08:00-20:00
+  thu:
+    - 08:00-20:00
+  fri:
+    - 08:00-20:00
+slot_granularity_minutes: 30
+min_booking_minutes: 30
+max_booking_minutes: 240
+max_advance_days: 28
+max_concurrent_per_user: 3
+requires_permission: false
+consumables:
+  - name: Tungsten filament
+    limit_hours: 100
+    warn_at: 80
+maintenance:
+  - task: Service visit
+    interval_days: 365

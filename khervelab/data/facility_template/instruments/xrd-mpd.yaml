@@ -1,0 +1,39 @@
+id: xrd-mpd
+name: PANalytical X'Pert MPD
+make_model: PANalytical X'Pert MPD
+category: X-ray diffraction
+facility: X-ray Diffraction Facility
+techniques:
+  - powder XRD
+description: Powder diffractometer for phase identification.
+colour: '#d4a72c'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 00:00-24:00
+  tue:
+    - 00:00-24:00
+  wed:
+    - 00:00-24:00
+  thu:
+    - 00:00-24:00
+  fri:
+    - 00:00-24:00
+  sat:
+    - 00:00-24:00
+  sun:
+    - 00:00-24:00
+slot_granularity_minutes: 30
+min_booking_minutes: 30
+max_booking_minutes: 1440
+max_advance_days: 28
+max_concurrent_per_user: 4
+requires_permission: true
+consumables:
+  - name: Cu X-ray tube
+    limit_hours: 20000
+    warn_at: 18000
+maintenance:
+  - task: Alignment check
+    interval_days: 90

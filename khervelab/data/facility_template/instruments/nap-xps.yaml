@@ -1,0 +1,48 @@
+id: nap-xps
+name: Near Ambient Pressure XPS
+make_model: ''
+category: Photoelectron spectroscopy
+facility: Advanced Photoelectron Spectroscopy Laboratory
+techniques:
+  - NAP-XPS
+  - XPS
+  - UPS
+  - LEED
+description: 'In-situ XPS from UHV to tens of mbar at variable temperature: catalysis, gas–surface reactions.
+  Also UPS (work function, valence band) and LEED.'
+colour: '#1f6feb'
+location: ''
+source: materials-website
+bookable_hours:
+  mon:
+    - 00:00-24:00
+  tue:
+    - 00:00-24:00
+  wed:
+    - 00:00-24:00
+  thu:
+    - 00:00-24:00
+  fri:
+    - 00:00-24:00
+  sat:
+    - 00:00-24:00
+  sun:
+    - 00:00-24:00
+slot_granularity_minutes: 60
+min_booking_minutes: 240
+max_booking_minutes: 1440
+max_advance_days: 60
+max_concurrent_per_user: 3
+requires_permission: true
+consumables:
+  - name: X-ray source anode
+    limit_hours: 1500
+    warn_at: 1300
+  - name: UV lamp
+    limit_hours: 1000
+    warn_at: 900
+maintenance:
+  - task: Bake-out
+    interval_days: 180
+  - task: Energy-scale calibration (Au/Ag/Cu)
+    interval_days: 30
