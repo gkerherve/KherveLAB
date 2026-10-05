@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 def main() -> int:
-    from PyQt6.QtCore import QSettings
+    from PyQt6.QtCore import QSettings, QTimer
     from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
     from . import __app_name__
@@ -31,6 +31,13 @@ def main() -> int:
     settings = QSettings("Kherve", __app_name__)
     theme.apply(app, settings.value("dark", False, type=bool))
 
+    store, store_error = None, ""
+    try:
+        from .local.store import LocalStore
+        store = LocalStore()
+    except Exception as exc:  # no keyring backend, unreadable database...
+        store_error = str(exc)
+
     repo = None
     path = sys.argv[1] if len(sys.argv) > 1 else settings.value("repo_path", "")
     if path:
@@ -45,7 +52,7 @@ def main() -> int:
                 return 0
             repo = dlg.repo
         try:
-            win = MainWindow(repo, settings)
+            win = MainWindow(repo, settings, store, store_error)
         except ConfigError as exc:
             QMessageBox.warning(None, __app_name__, f"The facility repository has an invalid "
                                                     f"file:\n\n{exc}")
@@ -54,6 +61,7 @@ def main() -> int:
         break
     settings.setValue("repo_path", str(repo.path))
     win.show()
+    QTimer.singleShot(800, win.startup_checks)
     return app.exec()
 
 

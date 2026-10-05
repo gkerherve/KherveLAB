@@ -32,9 +32,10 @@ def from_qdt(q: QDateTime, tz) -> datetime:
 
 class BookingDialog(QDialog):
     def __init__(self, svc: FacilityService, booking: Booking, editing: Booking | None = None,
-                 parent: QWidget | None = None):
+                 parent: QWidget | None = None, names: dict[str, str] | None = None):
         super().__init__(parent)
         self.svc = svc
+        self.names = names or {}
         self.editing = editing
         self.result_booking: Booking | None = None
         self.setWindowTitle("Edit booking" if editing else "New booking")
@@ -126,8 +127,10 @@ class BookingDialog(QDialog):
     def _fill_users(self, select: str) -> None:
         self.user.blockSignals(True)
         self.user.clear()
-        for u in sorted(self.svc.users.values(), key=lambda u: u.display.lower()):
-            self.user.addItem(f"{u.display}  ({u.id})", u.id)
+        def label(u):
+            return self.names.get(u.id) or u.display
+        for u in sorted(self.svc.users.values(), key=lambda u: label(u).lower()):
+            self.user.addItem(f"{label(u)}  ({u.id})", u.id)
         if select and self.user.findData(select) < 0:
             self.user.addItem(f"{select} (unknown)", select)
         self.user.setCurrentIndex(max(0, self.user.findData(select)))

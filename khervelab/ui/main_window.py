@@ -32,6 +32,7 @@ from .booking_dialog import BookingDialog
 from .calendar_view import DAY, MONTH, WEEK, CalendarView
 from .dialogs import ClashDialog, ConflictDialog, SetupDialog
 from .requests_panel import RequestsPanel
+from . import people as people_ui
 
 SYNC_INTERVAL_MS = 5 * 60 * 1000
 PUSH_DEBOUNCE_MS = 3000
@@ -68,9 +69,11 @@ def _swatch(colour: str) -> QIcon:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, repo: FacilityRepo, settings: QSettings):
+    def __init__(self, repo: FacilityRepo, settings: QSettings, store=None, store_error: str = ""):
         super().__init__()
         self.settings = settings
+        self.store = store
+        self.store_error = store_error
         self.repo = repo
         self.svc = FacilityService(repo)
         self.dark = settings.value("dark", False, type=bool)
@@ -226,6 +229,12 @@ class MainWindow(QMainWindow):
         dark.setCheckable(True)
         dark.setChecked(self.dark)
         vm.addAction(dark)
+        pm = mb.addMenu("&People")
+        pm.addAction(act("People and training…", self._people, "Ctrl+Shift+U"))
+        pm.addAction(act("Training expiring soon…", self._expiry))
+        pm.addSeparator()
+        pm.addAction(act("Back up training records…", self._backup))
+        pm.addAction(act("Restore training records…", self._restore))
         hm = mb.addMenu("&Help")
         hm.addAction(act("About KherveLAB", self._about))
 
@@ -335,6 +344,7 @@ class MainWindow(QMainWindow):
         order = sorted(self.visible & set(self.svc.instruments),
                        key=lambda i: (self.svc.instruments[i].facility, self.svc.instruments[i].name))
         insts = [self.svc.instruments[i] for i in order]
+        self.calendar.names = self.store.names() if self.store else {}
         self.calendar.set_state(self.svc, insts, self.current, self.anchor, self.mode, self.colours)
         first, last = self.calendar.visible_range()
         if self.mode == DAY:
@@ -397,7 +407,7 @@ class MainWindow(QMainWindow):
         if (end - start) < timedelta(minutes=inst.min_booking_minutes):
             end = start + timedelta(minutes=inst.min_booking_minutes)
         draft = Booking(iid, start, end, self._me())
-        dlg = BookingDialog(self.svc, draft, parent=self)
+        dlg = BookingDialog(self.svc, draft, parent=self, names=self.calendar.names)
         if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_booking is None:
             return
         b = dlg.result_booking
@@ -408,7 +418,7 @@ class MainWindow(QMainWindow):
                               self.svc.add_booking(b, override=dlg.wants_override)))
 
     def _edit(self, b: Booking):
-        dlg = BookingDialog(self.svc, b, editing=b, parent=self)
+        dlg = BookingDialog(self.svc, b, editing=b, parent=self, names=self.calendar.names)
         if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_booking is None:
             return
         new = dlg.result_booking
@@ -551,6 +561,60 @@ class MainWindow(QMainWindow):
         parts.append(f"{len(self.svc.cfg.bookings)} bookings · {len(self.svc.instruments)} "
                      "instruments")
         self.sync_label.setText("  ·  ".join(parts))
+
+    # -- people (local, encrypted) ----------------------------------------
+    def _need_store(self) -> bool:
+        if self.store is None:
+            QMessageBox.warning(self, "Training records", "The local encrypted store is not "
+                                f"available: {self.store_error or 'no keyring'}")
+            return False
+        return True
+
+    def _people(self):
+        if not self._need_store():
+            return
+        dlg = people_ui.PeopleDialog(self.svc, self.store, self)
+        dlg.exec()
+        if dlg.changed:
+            self._after_change()
+
+    def _expiry(self):
+        if self._need_store():
+            people_ui.ExpiryDialog(self.svc, self.store, self).exec()
+
+    def _backup(self):
+        if self._need_store():
+            people_ui.backup_dialog(self, self.store)
+
+    def _restore(self):
+        if not self._need_store():
+            return
+        restored = people_ui.restore_dialog(self, self.store)
+        if restored is not None:
+            self.store = restored
+            self.refresh()
+
+    def startup_checks(self):
+        """Revoke lapsed training and nag about backups. Called once shown."""
+        if self.store is None:
+            return
+        from ..local.training import sync_all
+        self.store.record_launch()
+        try:
+            if sync_all(self.svc, self.store):
+                self._after_change()
+        except (RepoError, ConfigError) as exc:
+            self.statusBar().showMessage(f"Could not update permissions: {exc}", 10_000)
+        why = self.store.backup_reminder()
+        if why:
+            box = QMessageBox(QMessageBox.Icon.Warning, "Back up training records",
+                              f"{why}\n\nTraining records exist only on this computer. If it "
+                              "is lost without a backup, they are gone.", parent=self)
+            now = box.addButton("Back up now…", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is now:
+                people_ui.backup_dialog(self, self.store)
 
     # -- misc -------------------------------------------------------------
     def _reload(self):

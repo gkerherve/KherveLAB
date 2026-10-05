@@ -103,6 +103,39 @@ GitHub users are mapped to anonymous user ids through the `github` field of
 The GitHub client uses only the standard library. ETags keep repeated polls
 off the rate limit.
 
+## Training records (Phase 4)
+
+**People ▸ People and training…** keeps each person's personal details and
+training records. All of it stays in a SQLite database on this computer:
+`~/.khervelab/local.db`, or the folder set in `KHERVELAB_HOME`.
+
+What is stored where:
+
+- **On this computer only.** The name, email, department, group, supervisor,
+  training dates, assessor, assessment notes and evidence files. Each of these
+  columns is encrypted with Fernet. The key is created on first run and kept
+  in the system keychain. Evidence files are stored encrypted in
+  `~/.khervelab/evidence/`.
+- **In the repository.** Only the anonymous id, the display string, the
+  GitHub username and the list of instruments the person may book.
+
+Saving a training record updates that list and commits it. Training that
+lapses is revoked automatically at start-up. The desktop app shows real names,
+because it resolves the anonymous ids locally. Nothing else can.
+
+The **People** menu also has:
+
+- **Training expiring soon**: everyone whose training lapses in the next 90
+  days, with a reminder-email draft (all recipients in BCC);
+- **Export record (PDF)**: one person's full record, for an audit or a
+  leaving researcher;
+- **Back up / Restore**: a zip holding the database, the evidence files and
+  the key. The key is wrapped with your passphrase (PBKDF2-SHA256), so the
+  backup also restores on a new machine.
+
+The backup prompt is insistent on purpose. It appears every 10th launch, and
+whenever the last backup is more than 30 days old.
+
 ## The facility repository
 
 ```

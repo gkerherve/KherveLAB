@@ -12,7 +12,7 @@ pytest.importorskip("pytestqt")
 from PyQt6.QtCore import QPoint, QSettings, Qt  # noqa: E402
 
 from khervelab.core.facility import FacilityService  # noqa: E402
-from khervelab.core.models import Booking  # noqa: E402
+from khervelab.core.models import Booking, User  # noqa: E402
 from khervelab.ui.booking_dialog import BookingDialog  # noqa: E402
 from khervelab.ui.calendar_view import (DAY, GUTTER, HEADER, MONTH, PPM, WEEK,  # noqa: E402
                                         BookingItem)
@@ -31,7 +31,10 @@ def window(qtbot, facility, tmp_path):
     settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
     settings.setValue("visible_instruments", ["xps", "sem-sigma-300"])
     settings.setValue("current_instrument", "xps")
-    w = MainWindow(facility, settings)
+    from cryptography.fernet import Fernet
+    from khervelab.local.store import LocalStore
+    store = LocalStore(tmp_path / "local", Fernet.generate_key())
+    w = MainWindow(facility, settings, store)
     qtbot.addWidget(w)
     w.resize(1400, 900)
     w.show()
@@ -166,3 +169,43 @@ def test_requests_panel_lists_and_approves(window, qtbot, monkeypatch):
     panel.approve()
     assert client.closed == [(11, "completed")]
     assert len(window.svc.bookings()) == 1
+
+
+def test_real_names_only_on_this_machine(window, qtbot):
+    from khervelab.local.store import Training
+    from khervelab.local.training import new_person, sync_permissions
+    from khervelab.ui.people import ExpiryDialog, PeopleDialog
+    p = new_person(window.svc, window.store, "Marie Curie", "MC group")
+    window.store.save_training(Training(None, p.id, "xps", "trained", date.today(),
+                                        expiry=date.today() + timedelta(days=30)))
+    sync_permissions(window.svc, window.store, p)
+    d = next_weekday()
+    tz = window.svc.tz
+    window.svc.add_booking(Booking("xps", datetime(d.year, d.month, d.day, 9, tzinfo=tz),
+                                   datetime(d.year, d.month, d.day, 11, tzinfo=tz), p.user_id))
+    window.anchor = d
+    window.refresh()
+    (item,) = booking_items(window)
+    assert "Marie Curie" in item.toolTip()
+    published = window.repo.path / "users" / f"{p.user_id}.yaml"
+    assert "Curie" not in published.read_text()
+    dlg = PeopleDialog(window.svc, window.store)
+    qtbot.addWidget(dlg)
+    assert dlg.list.count() == 1 and dlg.table.rowCount() == 1
+    exp = ExpiryDialog(window.svc, window.store)
+    qtbot.addWidget(exp)
+    assert len(exp.lapses) == 1
+
+
+def test_fresh_install_without_local_db_shows_display_strings(window):
+    window.svc.save_user(User("u-0002", "AB group"))
+    d = next_weekday()
+    tz = window.svc.tz
+    window.svc.add_booking(Booking("xps", datetime(d.year, d.month, d.day, 9, tzinfo=tz),
+                                   datetime(d.year, d.month, d.day, 11, tzinfo=tz), "u-0002"),
+                           override=True)
+    window.store = None
+    window.anchor = d
+    window.refresh()
+    (item,) = booking_items(window)
+    assert "AB group" in item.toolTip()

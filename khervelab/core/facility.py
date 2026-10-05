@@ -155,10 +155,10 @@ class FacilityService:
         self.repo.commit(f"cancel {b.label(self.tz)}", [rel])
         self.cfg.bookings.pop(rel, None)
 
-    def save_user(self, u: User) -> None:
+    def save_user(self, u: User, message: str | None = None) -> None:
         rel = f"users/{u.id}.yaml"
         self.repo.write_file(rel, dump_yaml(user_to_dict(u)))
-        self.repo.commit(f"user {u.id}", [rel])
+        self.repo.commit(message or f"user {u.id}", [rel])
         self.cfg.users[u.id] = u
 
     def next_user_id(self) -> str:

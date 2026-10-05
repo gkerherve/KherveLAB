@@ -126,6 +126,7 @@ class CalendarView(QGraphicsView):
         self._ghost: QGraphicsRectItem | None = None
         self._month_cells: list[tuple[QRectF, date]] = []
         self._scrolled_once = False
+        self.names: dict[str, str] = {}   # anonymous id -> real name, this machine only
 
     # -- public -----------------------------------------------------------
     def set_state(self, svc: FacilityService, instruments: list[Instrument], current: str | None,
@@ -284,7 +285,7 @@ class CalendarView(QGraphicsView):
             x = GUTTER + seg.col * self.colw + 3 + seg.lane * lane_w
             rect = QRectF(x, HEADER + seg.m0 * PPM + 1, lane_w - 2, (seg.m1 - seg.m0) * PPM - 2)
             user = self.svc.users.get(b.user)
-            who = user.display if user else b.user
+            who = self.names.get(b.user) or (user.display if user else b.user)
             s, e = b.start.astimezone(self.tz), b.end.astimezone(self.tz)
             when = f"{s:%H:%M}–{e:%H:%M}"
             if self.mode == WEEK and len(self.instruments) > 1:
