@@ -90,7 +90,16 @@ def load_facility(path: Path) -> Facility:
         timezone=tzname,
         organisation=_opt(d, "organisation", path, str, ""),
         contact=_opt(d, "contact", path, str, ""),
+        github=_github_slug(_opt(d, "github", path, str, ""), path),
+        site_url=_opt(d, "site_url", path, str, ""),
     )
+
+
+def _github_slug(val: str, path: Path) -> str:
+    val = val.strip()
+    if val and not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", val):
+        raise ConfigError(path, f"{val!r} must look like owner/repo", "github")
+    return val
 
 
 def load_instrument(path: Path) -> Instrument:

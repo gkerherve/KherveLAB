@@ -5,8 +5,7 @@ Kherve Tools suite. Shared state lives in a Git repository of plain YAML files.
 No server to maintain: every booking change is one readable commit, and the
 history is the audit trail.
 
-This first release covers **Phase 0 (foundation)** and **Phase 1 (calendar and
-booking)** of the KherveLab build plan.
+It follows the phases of the KherveLab build plan.
 
 ## Running
 
@@ -52,6 +51,31 @@ You can also pass a facility folder on the command line: `python KherveLAB.py ~/
   earliest-created booking is the default.
 - **Keyboard**: ←/→ move the date, T jumps to today, and 1/2/3 switch views
   (when the calendar has focus). Ctrl+N creates a new booking and Ctrl+R syncs.
+
+## Published calendar (Phase 2)
+
+The app regenerates a static site in `docs/` and commits it. This happens 3
+seconds after any change, or when you click **Publish now**.
+
+To serve the site, turn on GitHub Pages for the facility repository with
+**Deploy from a branch ▸ `main` ▸ `/docs`**. GitHub Pages can only serve a
+branch from its root or from `/docs`, which is why the folder is not called
+`site/`.
+
+The site contains:
+
+- `index.html`, the whole facility, with instrument filters;
+- `<instrument>/index.html`, a bookmarkable page for each instrument;
+- `bookings.json`, the published data;
+- `calendar.ics` for the whole facility and one for each instrument. Subscribe
+  to them in Outlook with **Add calendar ▸ Subscribe from web**.
+
+FullCalendar 6 (MIT) is vendored, and the data is also written to
+`assets/data.js`. The page therefore works from GitHub Pages and from a local
+`file://` path, with no CDN and no server.
+
+Only the instrument, the time, the anonymous display string and the kind of
+booking are published. Notes and samples never are.
 
 ## The facility repository
 

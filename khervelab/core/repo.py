@@ -163,9 +163,9 @@ class FacilityRepo:
         The author is the user's own git identity, as for a CLI commit."""
         for rel in paths:
             if (self.path / rel).exists():
-                self.git.git.add("--", rel)
+                self.git.git.add("-A", "--", rel)
             else:
-                self.git.git.rm("--cached", "--ignore-unmatch", "-q", "--", rel)
+                self.git.git.rm("--cached", "--ignore-unmatch", "-r", "-q", "--", rel)
         self._check_personal_data()
         self.git.git.commit("-m", message, "--allow-empty-message", "--no-verify")
         return self.git.head.commit.hexsha

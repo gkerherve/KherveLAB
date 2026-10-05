@@ -167,6 +167,28 @@ class FacilityService:
             n += 1
         return f"u-{n:04d}"
 
+    # -- publishing -------------------------------------------------------
+    def publish(self, statuses=None) -> bool:
+        """Regenerate docs/ and commit it if anything changed. Returns
+        whether a commit was made."""
+        from ..publish.build import SITE_DIR, build_site
+        head = self.repo.git.head.commit
+        as_of = datetime.fromtimestamp(head.committed_date, timezone.utc)
+        if head.message.startswith("publish calendar"):
+            parents = head.parents
+            as_of = datetime.fromtimestamp(parents[0].committed_date, timezone.utc) \
+                if parents else as_of
+        build_site(self.cfg, self.repo.path / SITE_DIR, as_of,
+                   statuses if statuses is not None else self.statuses())
+        changed = self.repo.git.git.status("--porcelain", "--", SITE_DIR).strip()
+        if not changed:
+            return False
+        self.repo.commit("publish calendar", [SITE_DIR])
+        return True
+
+    def statuses(self) -> dict:
+        return {}
+
     # -- sync -------------------------------------------------------------
     def sync(self):
         st = self.repo.sync()

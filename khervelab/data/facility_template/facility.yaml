@@ -4,3 +4,7 @@ name: Department of Materials — shared instruments
 organisation: Imperial College London
 timezone: Europe/London
 contact: ''
+# GitHub "owner/repo" of this facility repository: enables "Request a slot"
+github: ''
+# Where GitHub Pages serves the published calendar (site/ on the main branch)
+site_url: ''

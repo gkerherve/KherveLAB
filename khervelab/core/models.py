@@ -87,6 +87,8 @@ class Facility:
     timezone: str = "Europe/London"
     organisation: str = ""
     contact: str = ""
+    github: str = ""      # "owner/repo" of the facility repository, for booking requests
+    site_url: str = ""    # where GitHub Pages serves site/
 
     @property
     def tz(self) -> ZoneInfo:

@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         self.sync_timer = QTimer(self, interval=SYNC_INTERVAL_MS, timeout=self.sync)
         self.sync_timer.start()
         self.push_timer = QTimer(self, singleShot=True, interval=PUSH_DEBOUNCE_MS,
-                                 timeout=self.sync)
+                                 timeout=self._publish_and_sync)
         self.minute_timer = QTimer(self, interval=60_000, timeout=self.calendar.rebuild)
         self.minute_timer.start()
         QTimer.singleShot(200, self.sync)
@@ -183,6 +183,8 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction(act("New booking", self._new_booking, "Ctrl+N"))
         tb.addAction(act("Sync now", self.sync, "Ctrl+R", "Pull and push the facility repository"))
+        tb.addAction(act("Publish now", self.publish_now, "Ctrl+Shift+P",
+                         "Regenerate the public calendar in docs/ and push it"))
 
         # bare keys act only while the calendar has focus, so the sidebar
         # keeps its own arrow-key navigation
@@ -450,6 +452,24 @@ class MainWindow(QMainWindow):
     def _after_change(self):
         self.refresh()
         self.push_timer.start()
+
+    # -- publishing -------------------------------------------------------
+    def _publish(self) -> bool:
+        try:
+            return self.svc.publish()
+        except (RepoError, OSError) as exc:
+            self.statusBar().showMessage(f"Publishing failed: {exc}", 10_000)
+            return False
+
+    def _publish_and_sync(self):
+        self._publish()
+        self.sync()
+
+    def publish_now(self):
+        changed = self._publish()
+        self.statusBar().showMessage("Calendar published" if changed
+                                     else "Published calendar already up to date", 5000)
+        self.sync()
 
     # -- sync -------------------------------------------------------------
     def sync(self):
