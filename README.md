@@ -156,7 +156,14 @@ The manager sees everything the users see, plus the following:
 
 - **Requests**: a panel of the bookings and new accounts waiting for approval.
   Approve them, or reject them with a reason.
-- **Instruments**: for each instrument you set:
+- **Instruments**: **Add instrument** and **Remove instrument…**.
+  - **Removing an instrument with no bookings** deletes it.
+  - **Removing one with bookings** gives a choice. **Retire** hides it and
+    stops all booking, but keeps its bookings and charges in reports.
+    **Delete with its bookings** removes them too, and asks for a second
+    confirmation.
+
+  For each instrument you set:
   - **Approval mode:**
     - *Automatic*: every booking is approved at once.
     - *Automatic for trained users*: trained users book at once; everyone else

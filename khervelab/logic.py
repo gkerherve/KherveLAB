@@ -149,6 +149,35 @@ def add_instrument(conn, name, description, approval, colour, open_t, close_t, w
     return cur.lastrowid
 
 
+def instrument_bookings(conn, instrument_id: int) -> int:
+    return conn.execute("SELECT COUNT(*) FROM bookings WHERE instrument_id=?",
+                        (instrument_id,)).fetchone()[0]
+
+
+def retire_instrument(conn, instrument_id: int) -> None:
+    """Out of service for good: no longer bookable or shown, but its bookings
+    and their charges stay for reports."""
+    conn.execute("UPDATE instruments SET active=0 WHERE id=?", (instrument_id,))
+
+
+def remove_instrument(conn, instrument_id: int, with_bookings: bool = False) -> None:
+    """Delete an instrument (its sessions, rates, training and reports go
+    with it). Bookings hold past charges, so they are only deleted when
+    asked; otherwise an instrument with bookings is refused."""
+    n = instrument_bookings(conn, instrument_id)
+    if n and not with_bookings:
+        raise ValueError(f"the instrument has {n} booking(s); retire it to keep them, "
+                         "or delete it with its bookings")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("DELETE FROM bookings WHERE instrument_id=?", (instrument_id,))
+        conn.execute("DELETE FROM instruments WHERE id=?", (instrument_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
 def rate_for(conn, instrument_id: int, category: str) -> float:
     r = conn.execute("SELECT rate FROM rates WHERE instrument_id=? AND category=?",
                      (instrument_id, category)).fetchone()

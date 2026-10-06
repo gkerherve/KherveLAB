@@ -282,3 +282,19 @@ def test_labs_on_old_default_colours_move_to_the_new_ones(conn):
     db.init(conn)
     assert db.setting(conn, "colour_closed") == db.DEFAULT_SETTINGS["colour_closed"]
     assert db.setting(conn, "colour_free") == "#123456"
+
+
+def test_remove_retire_and_delete_instruments(conn):
+    empty = mk_inst(conn, "auto", name="Unused")
+    logic.remove_instrument(conn, empty)
+    assert conn.execute("SELECT COUNT(*) FROM instruments").fetchone()[0] == 0
+    i = mk_inst(conn, "auto")
+    conn.execute("INSERT INTO rates VALUES (?, 'Internal', 10)", (i,))
+    logic.book(conn, i, user(conn), nextweekday(9), nextweekday(10))
+    with pytest.raises(ValueError, match="1 booking"):
+        logic.remove_instrument(conn, i)
+    logic.retire_instrument(conn, i)
+    assert conn.execute("SELECT active FROM instruments").fetchone()[0] == 0
+    logic.remove_instrument(conn, i, with_bookings=True)
+    assert conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM rates").fetchone()[0] == 0

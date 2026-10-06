@@ -227,11 +227,16 @@ class InstrumentsDialog(QDialog):
         self.list.currentItemChanged.connect(self._load)
         add = QPushButton("Add instrument")
         add.clicked.connect(self._add)
+        remove = QPushButton("Remove instrument…")
+        remove.clicked.connect(self._remove)
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.addWidget(self.list)
-        ll.addWidget(add)
+        buttons = QHBoxLayout()
+        buttons.addWidget(add)
+        buttons.addWidget(remove)
+        ll.addLayout(buttons)
 
         self.name, self.location = QLineEdit(), QLineEdit()
         self.description = QPlainTextEdit()
@@ -485,6 +490,43 @@ class InstrumentsDialog(QDialog):
                 f"Sat {st.toString('HH:mm')} → Mon {en.toString('HH:mm')} = {hours:g} h")
         else:
             self.weekend_span_note.setText("an end at or before the start is the next morning")
+
+    def _remove(self):
+        if self.current is None:
+            return
+        name = self.name.text().strip() or "this instrument"
+        n = logic.instrument_bookings(self.conn, self.current)
+        if n == 0:
+            if QMessageBox.question(self, "Remove instrument",
+                                    f"Remove {name} permanently, with its rates, sessions and "
+                                    "training records?") != QMessageBox.StandardButton.Yes:
+                return
+            logic.remove_instrument(self.conn, self.current)
+        else:
+            box = QMessageBox(QMessageBox.Icon.Question, "Remove instrument",
+                              f"{name} has {n} booking(s), which hold past charges.\n\n"
+                              "Retire it to stop all booking and hide it, while keeping its "
+                              "bookings for reports; or delete it together with its bookings.",
+                              parent=self)
+            retire = box.addButton("Retire (keep bookings)", QMessageBox.ButtonRole.AcceptRole)
+            delete = box.addButton(f"Delete with {n} booking(s)",
+                                   QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is retire:
+                logic.retire_instrument(self.conn, self.current)
+            elif box.clickedButton() is delete:
+                if QMessageBox.question(self, "Delete for good",
+                                        f"Delete {name} and its {n} booking(s)? Their charges "
+                                        "disappear from reports. This cannot be undone.") \
+                        != QMessageBox.StandardButton.Yes:
+                    return
+                logic.remove_instrument(self.conn, self.current, with_bookings=True)
+            else:
+                return
+        self.changed = True
+        self.current = None
+        self._fill()
 
     def _add(self):
         iid = logic.add_instrument(self.conn, "New instrument", "", "manual", "#1f6feb", "08:00",

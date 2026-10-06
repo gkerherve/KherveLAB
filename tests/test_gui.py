@@ -545,3 +545,15 @@ def test_report_problem_dialog(qtbot, lab):
     mgr.table.selectRow(0)
     mgr._resolve()
     assert lab["conn"].execute("SELECT end FROM issues").fetchone()[0] is not None
+
+
+def test_remove_instrument_from_the_editor(qtbot, lab):
+    from khervelab.gui.admin import InstrumentsDialog
+    conn = lab["conn"]
+    dlg = InstrumentsDialog(conn)
+    qtbot.addWidget(dlg)
+    dlg._add()                                       # a new, unused instrument
+    new = dlg.current
+    dlg._remove()                                    # the question is answered Yes
+    assert conn.execute("SELECT COUNT(*) FROM instruments WHERE id=?", (new,)).fetchone()[0] == 0
+    assert dlg.list.count() == 2
