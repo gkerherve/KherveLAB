@@ -75,22 +75,37 @@ KINDS: dict[str, tuple[str, list[Field]]] = {
         Field("right", "Right", ("right", "rights", "status", "level", "autonomy", "access")),
     ]),
     "bookings": ("Bookings / usage", [
+        # PPMS's detailed session list leaves the session number's header blank,
+        # which read_table names "Column 1"
+        Field("ref", "PPMS session number", ("session id", "session", "booking id",
+                                             "session number", "ref", "reference", "id",
+                                             "column 1")),
         Field("system", "System", ("system", "system name", "instrument", "resource"), True),
-        Field("user", "Login", ("login", "username", "user login", "user", "booked by"), True),
+        Field("user", "User (login or name)", ("login", "username", "user login", "user",
+                                               "booked by"), True),
         Field("date", "Date (if separate)", ("date", "day", "booking date", "session date")),
         Field("start", "Start", ("start", "start time", "starttime", "from", "begin", "start date",
-                                 "booked from", "session start", "start date time"), True),
+                                 "booked from", "session start", "start date time", "hour",
+                                 "time", "start hour"), True),
         Field("end", "End", ("end", "end time", "endtime", "to", "until", "stop", "end date",
                              "booked to", "session end", "end date time")),
-        Field("hours", "Duration (h)", ("duration", "hours", "booked hours", "length",
-                                        "duration h", "time used", "used hours")),
+        Field("minutes", "Length (minutes)", ("length booked", "booked length", "minutes",
+                                              "booked minutes", "duration min",
+                                              "length minutes")),
+        Field("hours", "Length (hours)", ("duration h", "hours", "booked hours",
+                                          "duration hours", "duration")),
         Field("amount", "Amount charged", ("amount", "charge", "charged", "total", "price",
                                            "cost", "invoice amount", "final amount", "fee")),
         Field("status", "Status", ("status", "state", "cancelled", "canceled")),
-        Field("project", "Project / account", ("project", "account", "cost centre",
-                                                "cost center", "cost code", "grant", "fund")),
-        Field("comment", "Comment", ("comment", "comments", "purpose", "description", "note",
-                                     "assistance")),
+        Field("group", "Group / PI", ("group", "group name", "pi", "group head", "head")),
+        Field("category", "Affiliation / user type", ("affiliation", "affilation", "user type",
+                                                       "group type", "price type",
+                                                       "customer type")),
+        Field("account", "Account / cost code", ("account number", "account", "cost centre",
+                                                  "cost center", "cost code", "grant", "fund")),
+        Field("project", "Project", ("project",)),
+        Field("comment", "Notes", ("notes", "comment", "comments", "purpose", "description",
+                                   "note", "assistance")),
         Field("created", "Booked on", ("booked on", "created", "booking made", "date booked",
                                        "creation date")),
     ]),
@@ -108,7 +123,23 @@ ORDER = ["systems", "users", "prices", "rights", "bookings", "incidents"]
 
 
 def _norm(s) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+    return re.sub(r"[^a-z0-9]+", " ", _ascii(s).lower()).strip()
+
+
+def _ascii(s) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode()
+
+
+def _name_keys(full) -> set[str]:
+    """A person's name in either order, so "Doe Jo" (PPMS lists surname first)
+    finds "Jo Doe"."""
+    words = _norm(full).split()
+    return {" ".join(words), " ".join(reversed(words))} if words else set()
+
+
+def looks_like_name(v) -> bool:
+    return bool(re.search(r"\S[\s,]+\S", str(v or "").strip()))
 
 
 @dataclass
@@ -169,7 +200,8 @@ def guess_kind(headers: list[str]) -> str | None:
         if all(mapping.get(f.key) for f in req):
             hits = len([v for v in mapping.values() if v])
             score[kind] = (hits, hits / len(fields))
-    if "bookings" in score and not ({"start", "start time", "from", "start date"} & hs):
+    if "bookings" in score and not ({"start", "start time", "from", "start date", "hour",
+                                     "time"} & hs):
         score.pop("bookings")
     return max(score, key=score.get) if score else None
 
@@ -340,6 +372,18 @@ class Source:
     kind: str
     table: Table
     mapping: dict[str, str | None]
+    # PPMS system name -> KherveLAB instrument name, e.g. "XPS / Bay 2" -> "XPS"
+    systems: dict[str, str] = field(default_factory=dict)
+
+    def system(self, row: dict):
+        name = self.get(row, "name" if self.kind == "systems" else "system")
+        return self.systems.get(name, name) if name else name
+
+    def system_names(self) -> list[str]:
+        col = self.mapping.get("name" if self.kind == "systems" else "system")
+        if not col:
+            return []
+        return sorted({str(r[col]).strip() for r in self.table.rows if r.get(col)})
 
     def get(self, row: dict, key: str):
         col = self.mapping.get(key)
@@ -363,7 +407,7 @@ class Summary:
 
     def text(self) -> str:
         order = ["instruments created", "instruments matched", "users created", "users matched",
-                 "users created from bookings", "categories added", "prices set",
+                 "users completed", "users created from bookings", "late cancellations charged", "categories added", "prices set",
                  "trained users set", "bookings imported", "already imported",
                  "overlap existing bookings", "incidents imported", "rows skipped"]
         keys = [k for k in order if self.counts.get(k)] + \
@@ -400,6 +444,10 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
         users[_norm(r["username"])] = r["id"]
     emails = {_norm(r["email"]): r["id"] for r in
               conn.execute("SELECT id, email FROM users WHERE email != ''")}
+    names: dict[str, int] = {}
+    for r in conn.execute("SELECT id, full_name FROM users"):
+        for k in _name_keys(r["full_name"]):
+            names.setdefault(k, r["id"])
     cats = db.categories(conn)
     now = logic.fmt(logic.now_local(conn))
 
@@ -427,11 +475,24 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
         s.add("instruments created" + made_by)
         return cur.lastrowid
 
+    def by_name(full):
+        return next((names[k] for k in _name_keys(full) if k in names), None)
+
+    def new_username(full) -> str:
+        base = re.sub(r"[^a-z0-9]+", ".", _ascii(full).lower()).strip(".") or "user"
+        name, n = base, 1
+        while _norm(name) in users or conn.execute(
+                "SELECT 1 FROM users WHERE lower(username)=?", (name,)).fetchone():
+            n += 1
+            name = f"{base}{n}"
+        return name
+
     def user(login, row=None, src=None):
         key = _norm(login)
         if key in users:
             return users[key]
-        if src is not None:
+        from_users_file = src is not None and src.kind == "users"
+        if from_users_file:
             email = src.get(row, "email") or ""
             if _norm(email) in emails and email:
                 users[key] = emails[_norm(email)]
@@ -442,26 +503,56 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
             group = src.get(row, "group") or ""
             cat = category(src.get(row, "category"))
             status = "disabled" if _yes(src.get(row, "active")) is False else "active"
-            made_by = ""
+            hit = by_name(full)
+            if hit is not None:
+                old = conn.execute("SELECT * FROM users WHERE id=?", (hit,)).fetchone()
+                if not old["password_hash"] and not old["email"]:
+                    # made from a bookings list by name: give it its PPMS login and email
+                    conn.execute("UPDATE users SET username=?, email=?, group_name=?, "
+                                 "category=? WHERE id=?",
+                                 (str(login).strip(), str(email).strip(),
+                                  group or old["group_name"],
+                                  cat if src.get(row, "category") else old["category"], hit))
+                    s.add("users completed")
+                else:
+                    s.add("users matched")
+                users[key] = hit
+                if email:
+                    emails[_norm(email)] = hit
+                return hit
+            username, made_by = str(login).strip(), ""
         else:
-            email, full, group, cat, status = "", str(login), "", category(None), "active"
+            if looks_like_name(login):           # a bookings list that names people
+                hit = by_name(login)
+                if hit is not None:
+                    users[key] = hit
+                    return hit
+                username = new_username(login)
+            else:
+                username = str(login).strip()
+            email, full, status = "", str(login).strip(), "active"
+            group = (src.get(row, "group") if src is not None else "") or ""
+            cat = category(src.get(row, "category") if src is not None else None)
             made_by = " from bookings"
         cur = conn.execute(
             "INSERT INTO users (username, password_hash, full_name, email, group_name, category,"
             " role, status, created) VALUES (?, '', ?, ?, ?, ?, 'user', ?, ?)",
-            (str(login).strip(), str(full).strip(), str(email).strip(), str(group).strip(), cat,
+            (username, str(full).strip(), str(email).strip(), str(group).strip(), cat,
              status, now))
-        users[key] = cur.lastrowid
+        users[key] = users[_norm(username)] = cur.lastrowid
+        for k in _name_keys(full):
+            names.setdefault(k, cur.lastrowid)
         if email:
             emails[_norm(email)] = cur.lastrowid
         s.add("users created" + made_by)
         return cur.lastrowid
 
     for src in sources:
+        seen: dict = {}
         for n, row in enumerate(src.table.rows, start=1):     # as numbered in the preview
             where = f"{Path(src.table.path).name} row {n}"
             if src.kind == "systems":
-                name = src.get(row, "name")
+                name = src.system(row)
                 if not name:
                     s.problem(f"{where}: no system name")
                     continue
@@ -481,7 +572,7 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
                 else:
                     user(login, row, src)
             elif src.kind == "prices":
-                name, rate = src.get(row, "system"), parse_number(src.get(row, "rate"))
+                name, rate = src.system(row), parse_number(src.get(row, "rate"))
                 if not name or rate is None:
                     s.problem(f"{where}: needs a system and a price")
                     continue
@@ -490,19 +581,19 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
                                  src.get(row, "category")), rate))
                 s.add("prices set")
             elif src.kind == "rights":
-                login, name = src.get(row, "user"), src.get(row, "system")
+                login, name = src.get(row, "user"), src.system(row)
                 if not login or not name:
                     s.problem(f"{where}: needs a login and a system")
                     continue
                 if not right_trained(src.get(row, "right")):
                     continue
                 conn.execute("INSERT OR IGNORE INTO authorised (user_id, instrument_id) "
-                             "VALUES (?, ?)", (user(login), instrument(name)))
+                             "VALUES (?, ?)", (user(login, row, src), instrument(name)))
                 s.add("trained users set")
             elif src.kind == "bookings":
-                _booking(conn, src, row, where, s, dayfirst, instrument, user)
+                _booking(conn, src, row, where, s, dayfirst, instrument, user, seen)
             elif src.kind == "incidents":
-                name = src.get(row, "system")
+                name = src.system(row)
                 start = parse_datetime(src.get(row, "start"), dayfirst)
                 if not name or start is None:
                     s.problem(f"{where}: needs a system and a start date")
@@ -519,10 +610,10 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
                 s.add("incidents imported")
 
 
-def _booking(conn, src, row, where, s, dayfirst, instrument, user):
-    name, login = src.get(row, "system"), src.get(row, "user")
+def _booking(conn, src, row, where, s, dayfirst, instrument, user, seen):
+    name, login = src.system(row), src.get(row, "user")
     if not name or not login:
-        s.problem(f"{where}: needs a system and a login")
+        s.problem(f"{where}: needs a system and a user")
         return
     day = parse_datetime(src.get(row, "date"), dayfirst) if src.mapping.get("date") else None
 
@@ -536,45 +627,74 @@ def _booking(conn, src, row, where, s, dayfirst, instrument, user):
 
     start = when("start")
     end = when("end") if src.mapping.get("end") else None
-    hours = parse_hours(src.get(row, "hours")) if src.mapping.get("hours") else None
     if start is None:
         s.problem(f"{where}: cannot read the start {src.get(row, 'start')!r}")
         return
     if end is not None and end <= start and day is not None:
         end += timedelta(days=1)                     # a run past midnight
+    minutes = parse_number(src.get(row, "minutes")) if src.mapping.get("minutes") else None
+    hours = parse_hours(src.get(row, "hours")) if src.mapping.get("hours") else None
+    if end is None and minutes:
+        end = start + timedelta(minutes=minutes)
     if end is None and hours:
         end = start + timedelta(hours=hours)
     if end is None or end <= start:
-        s.problem(f"{where}: no end time or duration")
+        s.problem(f"{where}: no end time or length")
         return
     amount = parse_number(src.get(row, "amount")) if src.mapping.get("amount") else None
-    purpose = " · ".join(str(x) for x in (src.get(row, "comment"),
-                                          f"Project: {src.get(row, 'project')}"
-                                          if src.get(row, "project") else None) if x)
+    comment = src.get(row, "comment")
+    if src.get(row, "status"):
+        status = booking_status(src.get(row, "status"))
+    else:                                # PPMS often only says so in the notes
+        status = "cancelled" if "cancel" in _norm(comment) else "approved"
+    late = status == "cancelled" and amount
+    if late:          # a late cancellation PPMS still charged: it counts as revenue
+        status = "approved"
+    parts = ["Cancelled late, charged" if late else None, comment,
+             f"Account: {src.get(row, 'account')}" if src.get(row, "account") else None,
+             f"Project: {src.get(row, 'project')}" if src.get(row, "project") else None]
     created = parse_datetime(src.get(row, "created"), dayfirst) if src.mapping.get("created") \
         else None
-    result = record_history(conn, instrument(name), user(login), start, end,
-                            booking_status(src.get(row, "status")), amount, purpose, created)
+    ref = src.get(row, "ref")
+    uid = user(login, row, src)
+    if ref not in (None, ""):
+        # PPMS can list one person twice in a session (two accounts, or a
+        # repeated line), and charges each line: number the repeats so that
+        # each is kept and a second import still finds them all.
+        seen[(ref, uid)] = seen.get((ref, uid), 0) + 1
+        if seen[(ref, uid)] > 1:
+            ref = f"{ref}.{seen[(ref, uid)]}"
+    result = record_history(conn, instrument(name), uid, start, end, status,
+                            amount, " · ".join(str(x) for x in parts if x), created, ref=ref)
     s.add({"exists": "already imported", "overlap": "overlap existing bookings"}.get(
         result, "bookings imported"))
     if result == "overlap":
         s.add("bookings imported")
+    if late and result != "exists":
+        s.add("late cancellations charged")
 
 
 def record_history(conn, iid: int, uid: int, start: datetime, end: datetime,
                    status: str = "approved", amount: float | None = None, purpose: str = "",
-                   created: datetime | None = None, note: str = NOTE) -> str:
+                   created: datetime | None = None, note: str = NOTE, ref=None) -> str:
     """Store a booking that already happened elsewhere, as it was: no booking
     rules, and the amount charged (if known) as its fixed price. Returns
     'exists' (skipped), 'overlap' (stored, but it overlaps another booking)
-    or 'ok'."""
+    or 'ok'. With the source's own booking number (ref), only that number for
+    the same person counts as a repeat: a slot cancelled and booked again is
+    two bookings, and PPMS lists a shared session once per person."""
     st, en = logic.fmt(start), logic.fmt(end)
     if end <= start:
         raise ValueError("the end must be after the start")
     if status not in ("approved", "pending", "rejected", "cancelled"):
         raise ValueError(f"unknown status {status!r}")
-    if conn.execute("SELECT 1 FROM bookings WHERE instrument_id=? AND user_id=? AND start=? "
-                    "AND end=?", (iid, uid, st, en)).fetchone():
+    if ref not in (None, ""):
+        note = f"{note} #{ref}"
+        if conn.execute("SELECT 1 FROM bookings WHERE note=? AND user_id=?",
+                        (note, uid)).fetchone():
+            return "exists"
+    elif conn.execute("SELECT 1 FROM bookings WHERE instrument_id=? AND user_id=? AND start=? "
+                      "AND end=?", (iid, uid, st, en)).fetchone():
         return "exists"
     overlap = status in ("approved", "pending") and conn.execute(
         "SELECT 1 FROM bookings WHERE instrument_id=? AND status IN ('approved','pending') "

@@ -283,7 +283,7 @@ def _ppms_sources(conn, a) -> list[ppms.Source]:
         if missing:
             raise ToolError(f"{p.name}: map these fields to a column: {missing}. "
                             f"Its columns: {t.headers}")
-        out.append(ppms.Source(kind, t, mapping))
+        out.append(ppms.Source(kind, t, mapping, dict(f.get("systems") or {})))
     return out
 
 
@@ -291,7 +291,9 @@ def preview_ppms_import(conn, me, a):
     sources = _ppms_sources(conn, a)
     s = ppms.run(conn, sources, dry_run=True, dayfirst=a.get("dayfirst", True))
     return {"files": [{"path": x.table.path, "kind": x.kind, "rows": len(x.table.rows),
-                       "mapping": x.mapping, "columns": x.table.headers} for x in sources],
+                       "mapping": x.mapping, "columns": x.table.headers,
+                       "ppms_systems": x.system_names(), "systems": x.systems}
+                      for x in sources],
             "would_do": s.counts, "skipped_rows": s.problems}
 
 
@@ -540,7 +542,8 @@ TOOLS = [
      "this computer: what each file was recognised as, the column matching, and what would "
      "be created or skipped. Nothing is saved.",
      _s({"files": {"type": "array", "items": {"type": ["string", "object"]},
-                   "description": "paths, or {path, kind, mapping: {field: column}}"},
+                   "description": "paths, or {path, kind, mapping: {field: column}, "
+                                  "systems: {PPMS system name: instrument name}}"},
          "dayfirst": BOOL}, ["files"])),
     (import_ppms, False, "Import PPMS export files for real (after preview_ppms_import). A "
      "backup is saved first; files already imported are skipped.",

@@ -636,3 +636,19 @@ def test_connect_to_claude_dialog(qtbot, lab):
     qtbot.addWidget(dlg)
     assert dlg.who.currentData() == "manager"
     assert '"khervelab"' in dlg.json.toPlainText() and "--as" in dlg.cli.toPlainText()
+
+
+def test_ppms_systems_are_matched_to_instruments(qtbot, lab, tmp_path):
+    from khervelab.gui.importer import PpmsImportDialog
+    f = tmp_path / "list.csv"
+    f.write_text("System,User,Date,Hour,Length booked,Amount\n"
+                 "XPS / Bay 2,Doe Jo,03/02/2026,9:00,120,54\n", encoding="utf-8")
+    dlg = PpmsImportDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    page = dlg.add_file(f)
+    cb = page.system_combos["XPS / Bay 2"]
+    assert cb.currentData() is None                       # a new instrument unless chosen
+    cb.setCurrentIndex(cb.findData("XPS"))
+    page.combos["amount"].setCurrentIndex(page.combos["amount"].findData("Amount"))
+    assert page.system_combos["XPS / Bay 2"].currentData() == "XPS"   # kept on re-check
+    assert page.source().systems == {"XPS / Bay 2": "XPS"}

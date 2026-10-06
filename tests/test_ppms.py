@@ -5,6 +5,7 @@ from datetime import date, datetime
 import pytest
 
 from khervelab import analytics, logic, ppms
+from tests.test_logic import mk_inst
 
 # Made-up exports in the shapes PPMS installations commonly produce.
 SYSTEMS = "System;Type;Description\nXPS-1;Spectroscopy;Photoelectron\nSEM-2;Microscopy;\n"
@@ -140,3 +141,60 @@ def test_excel_export_and_incidents(conn, tmp_path):
     assert s.counts["incidents imported"] == 2
     kinds = [r["kind"] for r in conn.execute("SELECT kind FROM issues ORDER BY start")]
     assert kinds == ["down", "problem"]
+
+
+# The shape of PPMS's "Detailed list of sessions" export (made-up people):
+# a title line, a blank header over the session number, the person's name
+# rather than a login, date and hour apart, the length in minutes, and
+# cancellations only in the notes.
+SESSIONS = (
+    '"Detailed list of sessions - period: 01/10/2024-31/10/2024"\n'
+    '"","Date","Hour","Length booked","Length used","System","User","Group","Affilation",'
+    '"Account number",,"Fees*",,"Amount*","Project","SE","Notes","SE2 comments","Prepaid"\n'
+    '1001,01/10/2024,"17:00",900,0,"XPS / Bay 2","Doe Jo","Rivers",,"RIV-001",,,"",435,"",,,,0\n'
+    '1002,02/10/2024,"8:00",270,0,"XPS / Bay 2","Doe Jo","Rivers",,"RIV-001",,,"",0,"",,'
+    '"cancelled",,0\n'
+    '1003,03/10/2024,"8:00",270,0,"XPS / Bay 2","Roe Max","Hills","TRAC - Full Rate",'
+    '"HIL-9",,,"",198,"",,"cancelled",,0\n'
+    '1004,04/10/2024,"12:30",270,0,"XPS / Bay 2","Doe Jo","Rivers",,"RIV-001",,,"",121.5,'
+    '"",,"training",,0\n'
+    '1004,04/10/2024,"12:30",270,0,"XPS / Bay 2","Roe Max","Hills",,"HIL-9",,,"",121.5,"",,'
+    '"training",,0\n'
+    '1004,04/10/2024,"12:30",270,0,"XPS / Bay 2","Roe Max","Hills",,"HIL-9",,,"",121.5,"",,'
+    '"training",,0\n')
+
+
+def test_detailed_session_list(conn, tmp_path):
+    xps = mk_inst(conn, "auto")                          # the lab calls it just "XPS"
+    t = _write(tmp_path, "detailed-list.csv", SESSIONS)
+    assert ppms.guess_kind(t.headers) == "bookings"
+    m = ppms.guess_mapping("bookings", t.headers)
+    assert (m["ref"], m["start"], m["minutes"], m["comment"], m["category"]) == \
+        ("Column 1", "Hour", "Length booked", "Notes", "Affilation")
+    src = ppms.Source("bookings", t, m, {"XPS / Bay 2": "XPS"})
+    assert src.system_names() == ["XPS / Bay 2"]
+    s = ppms.run(conn, [src], dry_run=False)
+    assert s.counts["bookings imported"] == 6 and s.counts["users created from bookings"] == 2
+    assert s.counts["late cancellations charged"] == 1
+    assert "instruments created" not in s.counts
+    rows = conn.execute("SELECT b.*, u.full_name, u.username, u.group_name FROM bookings b "
+                        "JOIN users u ON u.id=b.user_id ORDER BY b.id").fetchall()
+    assert {r["instrument_id"] for r in rows} == {xps}
+    first = rows[0]
+    assert (first["start"], first["end"]) == ("2024-10-01T17:00", "2024-10-02T08:00")
+    assert first["username"] == "doe.jo" and first["group_name"] == "Rivers"
+    assert "Account: RIV-001" in first["purpose"]
+    assert [r["status"] for r in rows] == ["approved", "cancelled", "approved", "approved",
+                                           "approved", "approved"]
+    assert rows[2]["purpose"].startswith("Cancelled late, charged")
+    a = analytics.build(conn, date(2024, 10, 1), date(2024, 10, 31))
+    assert a.kpis[0].value == "£997.50"                 # every charged line, as in PPMS
+    assert ppms.run(conn, [src], dry_run=True).counts == {"already imported": 6}
+    # a users export later gives the people made from names their login and email
+    users = _write(tmp_path, "users.csv", "Login,First name,Last name,Email\n"
+                                          "jdoe,Jo,Doe,jo@uni.example\n")
+    s = ppms.run(conn, [ppms.Source("users", users, ppms.guess_mapping("users", users.headers))],
+                 dry_run=False)
+    assert s.counts == {"users completed": 1}
+    jo = conn.execute("SELECT * FROM users WHERE username='jdoe'").fetchone()
+    assert jo["email"] == "jo@uni.example" and jo["full_name"] == "Doe Jo"

@@ -279,6 +279,20 @@ The manager sees everything the users see, plus the following:
     which rows it would skip, and why. Nothing is saved until **Import**.
   - **Safe:** a backup of the lab is saved just before importing, and
     importing the same files again skips what is already there.
+  - **Instruments:** say which of your instruments each PPMS system is
+    (e.g. "XPS / Bay 2" → XPS), or let it create a new one.
+  - **The detailed list of sessions** (Reports ▸ detailed list in PPMS)
+    imports on its own. It names people rather than giving logins, so:
+    - accounts are made from the names, with the group (PI) and
+      affiliation;
+    - a users export imported later gives those accounts their PPMS login
+      and email, so people can claim them;
+    - a shared session is one booking per person, each with its own
+      account and charge;
+    - a cancellation PPMS still charged counts as revenue (marked
+      "Cancelled late, charged").
+
+    The totals match PPMS's own.
   - **What comes across:**
     - bookings keep the amount PPMS charged, and the reports count them;
     - a project or account code goes into the booking's purpose;

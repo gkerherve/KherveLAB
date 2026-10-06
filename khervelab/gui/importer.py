@@ -16,7 +16,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-                             QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
+                             QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
                              QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                              QWidget)
 
@@ -28,9 +28,11 @@ NOT_IN_FILE = "(not in this file)"
 class _FilePage(QWidget):
     """One exported file: what kind it is, which column is which, and a preview."""
 
-    def __init__(self, table: ppms.Table, parent=None):
+    def __init__(self, table: ppms.Table, instruments: list[str] = (), parent=None):
         super().__init__(parent)
         self.table = table
+        self.instruments = list(instruments)
+        self.system_combos: dict[str, QComboBox] = {}
         self.kind = QComboBox()
         for key in ppms.ORDER:
             self.kind.addItem(ppms.KINDS[key][0], key)
@@ -45,7 +47,12 @@ class _FilePage(QWidget):
         self.note.setWordWrap(True)
         top.addRow(self.note)
         cols = QWidget()
-        cols.setLayout(self.form)
+        side = QVBoxLayout(cols)
+        side.addLayout(self.form)
+        self.sys_box = QGroupBox("PPMS system → KherveLAB instrument")
+        self.sys_form = QFormLayout(self.sys_box)
+        side.addWidget(self.sys_box)
+        side.addStretch(1)
         preview = QTableWidget(min(len(table.rows), 30), len(table.headers))
         preview.setHorizontalHeaderLabels(table.headers)
         for r, row in enumerate(table.rows[:30]):
@@ -86,16 +93,38 @@ class _FilePage(QWidget):
         return [f.label for f in ppms.KINDS[kind][1]
                 if f.required and self.combos[f.key].currentData() is None]
 
+    def _systems(self):
+        chosen = {n: cb.currentData() for n, cb in self.system_combos.items()}
+        while self.sys_form.rowCount():
+            self.sys_form.removeRow(0)
+        self.system_combos = {}
+        names = self.source(with_systems=False).system_names()[:40]
+        for name in names:
+            cb = QComboBox()
+            cb.addItem(f"New instrument “{name}”", None)
+            for i in self.instruments:
+                cb.addItem(i, i)
+            same = next((i for i in self.instruments if ppms._norm(i) == ppms._norm(name)), None)
+            pick = chosen.get(name, same)
+            if pick:
+                cb.setCurrentIndex(cb.findData(pick))
+            self.system_combos[name] = cb
+            self.sys_form.addRow(name, cb)
+        self.sys_box.setVisible(bool(names) and bool(self.instruments))
+
     def _check(self, *_):
+        self._systems()
         miss = self.missing()
         n = len(self.table.rows)
         self.note.setText(f"{n:,} rows. " + (f"<b style='color:#b42318'>Choose the column for: "
                                               f"{', '.join(miss)}.</b>" if miss else
                                               "Check that each field has the right column."))
 
-    def source(self) -> ppms.Source:
+    def source(self, with_systems: bool = True) -> ppms.Source:
+        systems = {n: cb.currentData() for n, cb in self.system_combos.items()
+                   if cb.currentData()} if with_systems else {}
         return ppms.Source(self.kind.currentData(), self.table,
-                           {k: cb.currentData() for k, cb in self.combos.items()})
+                           {k: cb.currentData() for k, cb in self.combos.items()}, systems)
 
 
 class PpmsImportDialog(QDialog):
@@ -110,7 +139,9 @@ class PpmsImportDialog(QDialog):
             "<b>users</b>, <b>prices</b>, <b>rights</b> (training), <b>bookings or usage</b> "
             "with the amount charged, and <b>incidents</b>. Add them all here; KherveLAB "
             "recognises each file and its columns, and you can correct anything it got wrong."
-            "<br>Bookings keep the amount PPMS charged. Imported people choose their password "
+            "<br>Say which of your instruments each PPMS system is (e.g. “XPS / Bay 2” → "
+            "XPS). Bookings keep the amount PPMS charged, including late cancellations it "
+            "charged; a shared session is one booking per person. Imported people choose their password "
             "the first time they log in, by giving the email address on record. Importing the "
             "same files again skips what is already there.")
         intro.setWordWrap(True)
@@ -150,7 +181,9 @@ class PpmsImportDialog(QDialog):
         lay.addLayout(bottom)
 
     def add_file(self, path: str | Path) -> _FilePage:
-        page = _FilePage(ppms.read_table(path))
+        names = [r[0] for r in self.conn.execute(
+            "SELECT name FROM instruments WHERE active=1 ORDER BY name")]
+        page = _FilePage(ppms.read_table(path), names)
         self.pages.addTab(page, Path(path).name)
         self.pages.setCurrentWidget(page)
         return page
