@@ -102,8 +102,9 @@ Stack:
 - `issues` rows (`problem` or `down`, `end` NULL = until fixed) colour the
   calendar. A `down` issue blocks non-manager bookings in `logic.check`.
   `logic.slots` lists every bookable slot, and `CalendarView._draw_slots`
-  draws them as boxes: very light grey (free), yellow (problem), red
-  (down). Closed time is very dark grey with lighter dashes. Changed
+  draws them as raised cards (`paint_card`: rounded, soft shadow, gentle
+  gradient), which bookings share. Closed time is a flat light background
+  with no grid lines; hour lines remain only in columns without slot cards. Changed
   defaults go into `db.REPLACED_DEFAULTS`, so that labs still on the old
   default follow the new one. Bookings use the `colour_booked` setting; the
   colours are the `colour_*` settings.

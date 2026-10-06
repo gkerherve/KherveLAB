@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (QApplication, QGraphicsRectItem, QGraphicsScene,
                              QGraphicsSimpleTextItem, QGraphicsView, QMenu)
 
@@ -56,6 +56,39 @@ def _clip(t: QGraphicsSimpleTextItem, width: float) -> None:
         t.setText(text + "…")
 
 
+def paint_card(painter: QPainter, rect: QRectF, colour: QColor, *, dashed: bool = False,
+               outline: QColor | None = None, raised: bool = True) -> None:
+    """A rounded card with a soft shadow and a gentle top-to-bottom shading,
+    so slots and bookings read as objects sitting on the calendar."""
+    radius = min(6.0, rect.height() / 3, rect.width() / 3)
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if raised:
+        for spread, alpha in ((3.0, 14), (1.5, 26)):          # soft drop shadow
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(15, 30, 60, alpha))
+            painter.drawRoundedRect(rect.adjusted(0, spread, 0, spread), radius, radius)
+    grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+    grad.setColorAt(0.0, colour.lighter(112))
+    grad.setColorAt(1.0, colour.darker(104))
+    painter.setBrush(QBrush(grad))
+    edge = outline or colour.darker(125)
+    painter.setPen(QPen(edge, 2.5 if outline else 1, Qt.PenStyle.DashLine if dashed
+                        else Qt.PenStyle.SolidLine))
+    painter.drawRoundedRect(rect, radius, radius)
+    if raised and rect.height() > 6:                           # a thin top highlight
+        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
+        painter.drawLine(rect.topLeft() + QPointF(radius, 1), rect.topRight() + QPointF(-radius, 1))
+    painter.restore()
+
+
+class SlotCard(QGraphicsRectItem):
+    """A bookable slot drawn as a card (its brush colour is its state)."""
+
+    def paint(self, painter, option, widget=None):
+        paint_card(painter, self.rect(), self.brush().color())
+
+
 class BookingItem(QGraphicsRectItem):
     def __init__(self, seg: Segment, rect: QRectF, colour: str, title: str, subtitle: str,
                  tip: str, editable: bool, stripe: str | None = None,
@@ -72,10 +105,13 @@ class BookingItem(QGraphicsRectItem):
             self.setBrush(QBrush(c))
             self.setPen(QPen(c.darker(150), 2 if seg.booking.get("mine") else 1))
             text_colour = QColor(readable_text(colour))
+        self._card = (c.lighter(150) if pending else c, pending,
+                      QColor(outline) if outline else None)
         if outline:                                   # booked during a reported issue
             self.setPen(QPen(QColor(outline), 3))
         if stripe:                                    # which instrument, on the all view
-            bar = QGraphicsRectItem(QRectF(rect.x(), rect.y(), 4, rect.height()), self)
+            bar = QGraphicsRectItem(QRectF(rect.x() + 2, rect.y() + 4, 3, rect.height() - 8),
+                                    self)
             bar.setBrush(QBrush(QColor(stripe)))
             bar.setPen(QPen(Qt.PenStyle.NoPen))
             rect = rect.adjusted(4, 0, 0, 0)
@@ -89,7 +125,7 @@ class BookingItem(QGraphicsRectItem):
             t = QGraphicsSimpleTextItem(title, self)
             t.setFont(f)
             t.setBrush(text_colour)
-            t.setPos(rect.x() + 4, rect.y() + 1)
+            t.setPos(rect.x() + 7, rect.y() + 3)
             _clip(t, rect.width())
             if rect.height() >= 30 and subtitle:
                 f2 = QFont()
@@ -97,8 +133,12 @@ class BookingItem(QGraphicsRectItem):
                 s = QGraphicsSimpleTextItem(subtitle, self)
                 s.setFont(f2)
                 s.setBrush(text_colour)
-                s.setPos(rect.x() + 4, rect.y() + 14)
+                s.setPos(rect.x() + 7, rect.y() + 16)
                 _clip(s, rect.width())
+
+    def paint(self, painter, option, widget=None):
+        colour, pending, outline = self._card
+        paint_card(painter, self.rect(), colour, dashed=pending, outline=outline)
 
     def hoverMoveEvent(self, event):
         if not self.editable:
@@ -250,21 +290,26 @@ class CalendarView(QGraphicsView):
         sc, c = self.scene(), self.colours
         today = date.today()
         none = QPen(Qt.PenStyle.NoPen)
+        hour = QPen(QColor(c.grid_hour))
+        faint = QPen(QColor(c.grid))
         for i, col in enumerate(self.columns):
             x = GUTTER + i * self.colw
-            if col.day == today and (self.mode == WEEK or self.single):
-                sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.today)).setZValue(-3)
             inst = self._inst(col.instrument) if (self.single or self.mode == DAY) else None
             if inst is not None:
                 self._draw_slots(inst, col.day, x)
-        grid, hour = QPen(QColor(c.grid)), QPen(QColor(c.grid_hour))
-        right = GUTTER + self.colw * len(self.columns)
-        for slot in range(49):
-            y = HEADER + slot * ROW
-            sc.addLine(GUTTER, y, right, y, hour if slot % 2 == 0 else grid).setZValue(-1)
+                continue
+            # columns without slot cards (all instruments, by week) keep hour lines
+            if col.day == today and self.mode == WEEK:
+                sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.today)).setZValue(-3)
+            for h in range(25):
+                y = HEADER + h * 60 * PPM
+                sc.addLine(x, y, x + self.colw, y, faint).setZValue(-1)
         for i in range(len(self.columns) + 1):
             x = GUTTER + i * self.colw
             sc.addLine(x, HEADER, x, HEADER + DAY_H, hour).setZValue(-1)
+        for h in range(25):                           # hour ticks beside the time labels
+            y = HEADER + h * 60 * PPM
+            sc.addLine(GUTTER - 6, y, GUTTER, y, hour).setZValue(-1)
 
     def _draw_slots(self, inst, day: date, x: float) -> None:
         """An empty calendar is not blank: every bookable slot is a box, grey
@@ -273,13 +318,13 @@ class CalendarView(QGraphicsView):
         Bookings are drawn on top. Outside the slots is closed."""
         sc, c, pal = self.scene(), self.colours, self.palette_cfg
         none = QPen(Qt.PenStyle.NoPen)
-        # closed: very dark grey with lighter dashes over it, so it can never be
-        # mistaken for a free (very light grey) slot
-        closed = QColor(pal.get("closed", "#3d4249"))
-        whole = QRectF(x, HEADER, self.colw, DAY_H)
-        sc.addRect(whole, none, closed).setZValue(-2.6)
-        sc.addRect(whole, none, QBrush(closed.lighter(165), Qt.BrushStyle.BDiagPattern)
-                   ).setZValue(-2.5)
+        # closed: a flat, calm background; the bookable slots sit on it as cards
+        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none,
+                   QColor(pal.get("closed", "#e4e8ee"))).setZValue(-2.6)
+        if day == date.today():                       # today: a faint tint behind the cards
+            tint = QColor(c.today)
+            tint.setAlpha(110)
+            sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, tint).setZValue(-2.5)
         d0, d1 = self._at(day, 0), self._at(day, 1440)
         small = QFont()
         small.setPointSizeF(7.5)
@@ -288,14 +333,17 @@ class CalendarView(QGraphicsView):
             a, b = max(s0, d0), min(s1, d1)
             m0 = (a - d0).total_seconds() / 60
             m1 = (b - d0).total_seconds() / 60
-            r = QRectF(x + 3, HEADER + m0 * PPM + 1, self.colw - 6, (m1 - m0) * PPM - 2)
+            r = QRectF(x + 5, HEADER + m0 * PPM + 2, self.colw - 10, (m1 - m0) * PPM - 5)
             kinds = {i["kind"] for i in day_issues
                      if logic.parse(i["start"]) < s1 and
                      (i["end"] is None or logic.parse(i["end"]) > s0)}
             state = "down" if "down" in kinds else "problem" if "problem" in kinds else "free"
             fill = QColor(pal[state])
-            box = sc.addRect(r, QPen(QColor(pal[state]).darker(115), 1), fill)
-            box.setZValue(-0.9)                       # above the half-hour grid lines
+            box = SlotCard(r)
+            box.setBrush(QBrush(fill))
+            box.setPen(QPen(Qt.PenStyle.NoPen))
+            box.setZValue(-0.9)
+            sc.addItem(box)
             if r.height() >= 13 and s0 >= d0:
                 span = (f"{s0:%H:%M}–{s1:%H:%M}" if s1 - s0 < timedelta(days=1)
                         else f"{s0:%a %H:%M} → {s1:%a %H:%M}")
@@ -309,7 +357,7 @@ class CalendarView(QGraphicsView):
                 t.setBrush(QColor("#ffffff" if state == "down" else c.muted
                                   if state == "free" else "#1f2328"))
                 _clip(t, self.colw - 10)
-                t.setPos(r.x() + 4, r.y() + 1)
+                t.setPos(r.x() + 7, r.y() + 3)
                 t.setZValue(-0.8)
         for i in day_issues:                          # the exact time of each issue
             a = max(logic.parse(i["start"]), d0)
@@ -376,7 +424,7 @@ class CalendarView(QGraphicsView):
             outline = self.palette_cfg.get(state) if state != "ok" else None
             w = (self.colw - 6) / seg.lanes
             x = GUTTER + seg.col * self.colw + 3 + seg.lane * w
-            rect = QRectF(x, HEADER + seg.m0 * PPM + 1, w - 2, (seg.m1 - seg.m0) * PPM - 2)
+            rect = QRectF(x + 2, HEADER + seg.m0 * PPM + 2, w - 6, (seg.m1 - seg.m0) * PPM - 5)
             s, e = logic.parse(b["start"]), logic.parse(b["end"])
             # a run of a day or more shows its days: 08:00–08:00 would read as nothing
             when = (f"{s:%H:%M}–{e:%H:%M}" if e - s < timedelta(days=1)

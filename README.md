@@ -77,19 +77,20 @@ your choice with `--data FOLDER`.
 ## Slot colours, problems and out of order
 
 The calendar is never blank. On an instrument's own tab, and in the All
-instruments day view, every bookable slot is drawn as a box (e.g. 08:00–12:30
-and 12:30–17:00 for 4.5 h slots from 08:00, or the whole evening or weekend
-when that is one booking). Each box is:
+instruments day view, every bookable slot is a raised card with rounded
+corners and a soft shadow. Examples are 09:00–11:00, 11:00–13:00, … for 2 h
+slots, or the whole evening or weekend when that is one booking. A card is:
 
-- **very light grey** when free;
-- **blue** when booked (pale and dashed while waiting for approval);
-- **yellow** when a problem has been reported for that time;
+- **near-white** when free;
+- **blue** when booked (pale with a dashed edge while waiting for approval);
+- **amber** when a problem has been reported for that time;
 - **red** when the instrument is out of order.
 
-Closed time is **very dark grey with lighter dashes over it**, so it is never
-mistaken for a free slot. All five colours (free, closed, booked, problem and
-out of order) are set in **Lab settings ▸ Calendar colours**. Each instrument
-tab shows a legend under its info line, and its current status.
+Closed time is a flat, calm grey-blue background behind the cards, with no
+lines across it. The hours are marked beside the time labels. All five
+colours (free, closed, booked, problem and out of order) are set in **Lab
+settings ▸ Calendar colours**. Each instrument tab shows a legend under its
+info line, and its current status.
 
 Reporting and resolving:
 

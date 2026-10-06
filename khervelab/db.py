@@ -140,11 +140,11 @@ DEFAULT_SETTINGS = {
     "account_approval": "1",   # new accounts wait for the administrator
     "show_names": "1",         # logged-in users see who booked a slot
     # calendar colours for slots
-    "colour_free": "#eef1f4",     # very light grey
-    "colour_closed": "#3d4249",   # very dark grey, hatched with lighter dashes
-    "colour_booked": "#1f6feb",
-    "colour_problem": "#e3b341",
-    "colour_down": "#cf222e",
+    "colour_free": "#f7f9fc",     # raised near-white card
+    "colour_closed": "#e4e8ee",   # flat, calm background behind the cards
+    "colour_booked": "#3b7ddd",
+    "colour_problem": "#f2b33d",
+    "colour_down": "#d9534f",
 }
 
 
@@ -188,7 +188,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 
 # defaults later changed: a lab still on the old default gets the new one
-REPLACED_DEFAULTS = [("colour_free", "#d8dde3")]
+REPLACED_DEFAULTS = [("colour_free", "#d8dde3"), ("colour_free", "#eef1f4"),
+                     ("colour_closed", "#3d4249"), ("colour_booked", "#1f6feb"),
+                     ("colour_problem", "#e3b341"), ("colour_down", "#cf222e")]
 
 
 def init(conn: sqlite3.Connection) -> None:

@@ -274,3 +274,11 @@ def test_24_hour_slot_and_overnight_9_hour_run(conn):
 def test_fmt_duration():
     assert [logic.fmt_duration(m) for m in (30, 60, 270, 540, 1440, 75)] == \
         ["30 min", "1 h", "4.5 h", "9 h", "24 h", "1.25 h"]
+
+
+def test_labs_on_old_default_colours_move_to_the_new_ones(conn):
+    db.set_setting(conn, "colour_closed", "#3d4249")      # the old dark default
+    db.set_setting(conn, "colour_free", "#123456")        # a colour the manager chose
+    db.init(conn)
+    assert db.setting(conn, "colour_closed") == db.DEFAULT_SETTINGS["colour_closed"]
+    assert db.setting(conn, "colour_free") == "#123456"
