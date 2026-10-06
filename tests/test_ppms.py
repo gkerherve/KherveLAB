@@ -190,6 +190,9 @@ def test_detailed_session_list(conn, tmp_path):
     a = analytics.build(conn, date(2024, 10, 1), date(2024, 10, 31))
     assert a.kpis[0].value == "£997.50"                 # every charged line, as in PPMS
     assert ppms.run(conn, [src], dry_run=True).counts == {"already imported": 6}
+    jo_created = conn.execute("SELECT created FROM users WHERE username='doe.jo'").fetchone()[0]
+    assert jo_created == "2024-10-01T17:00"              # joined at their first PPMS session
+    assert a.kpis[2].note == "2 new account(s)"
     # a users export later gives the people made from names their login and email
     users = _write(tmp_path, "users.csv", "Login,First name,Last name,Email\n"
                                           "jdoe,Jo,Doe,jo@uni.example\n")

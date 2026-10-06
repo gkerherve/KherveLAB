@@ -407,7 +407,8 @@ class Summary:
 
     def text(self) -> str:
         order = ["instruments created", "instruments matched", "users created", "users matched",
-                 "users completed", "users created from bookings", "late cancellations charged", "categories added", "prices set",
+                 "users completed", "users created from bookings",
+                 "accounts dated from their first booking", "late cancellations charged", "categories added", "prices set",
                  "trained users set", "bookings imported", "already imported",
                  "overlap existing bookings", "incidents imported", "rows skipped"]
         keys = [k for k in order if self.counts.get(k)] + \
@@ -427,6 +428,7 @@ def run(conn, sources: list[Source], dry_run: bool = True, dayfirst: bool = True
     conn.execute("BEGIN IMMEDIATE")
     try:
         _import(conn, sorted(sources, key=lambda x: ORDER.index(x.kind)), s, dayfirst)
+        _date_accounts(conn, s)
     except Exception:
         conn.rollback()
         raise
@@ -435,6 +437,20 @@ def run(conn, sources: list[Source], dry_run: bool = True, dayfirst: bool = True
     else:
         conn.commit()
     return s
+
+
+def _date_accounts(conn, s: Summary):
+    """Someone who used the lab in PPMS since 2024 joined it in 2024, not on
+    the day of the import: an account is dated from its first imported
+    booking when that is earlier. Re-running an import corrects accounts
+    imported before this rule."""
+    n = conn.execute(
+        "UPDATE users SET created = (SELECT MIN(b.start) FROM bookings b WHERE "
+        "b.user_id = users.id AND b.note LIKE ?) WHERE created > (SELECT MIN(b.start) FROM "
+        "bookings b WHERE b.user_id = users.id AND b.note LIKE ?)",
+        (NOTE + "%", NOTE + "%")).rowcount
+    if n:
+        s.add("accounts dated from their first booking", n)
 
 
 def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):

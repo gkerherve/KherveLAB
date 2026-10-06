@@ -293,6 +293,10 @@ The manager sees everything the users see, plus the following:
       "Cancelled late, charged").
 
     The totals match PPMS's own.
+  - **Any dates:** history from any time imports, past or future, whatever
+    the date the lab was set up in KherveLAB. Imported accounts are dated
+    from their first PPMS booking, and importing again corrects accounts
+    imported before this rule. In Reports, **All time** covers everything.
   - **What comes across:**
     - bookings keep the amount PPMS charged, and the reports count them;
     - a project or account code goes into the booking's purpose;

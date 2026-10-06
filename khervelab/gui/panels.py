@@ -340,7 +340,7 @@ class ReportsDialog(QDialog):
         last_end = today.replace(day=1) - timedelta(days=1)
         self.preset = QComboBox()
         self.preset.addItems(["Last month", "This month", "Last 3 months", "This year",
-                              "Last year", "Custom"])
+                              "Last year", "All time", "Custom"])
         self.start = QDateEdit(QDate(last_end.year, last_end.month, 1))
         self.end = QDateEdit(QDate(last_end.year, last_end.month, last_end.day))
         for w in (self.start, self.end):
@@ -419,7 +419,8 @@ class ReportsDialog(QDialog):
         three = (first - timedelta(days=62)).replace(day=1)
         ranges = {0: (last_end.replace(day=1), last_end), 1: (first, today),
                   2: (three, last_end), 3: (date(today.year, 1, 1), today),
-                  4: (date(today.year - 1, 1, 1), date(today.year - 1, 12, 31))}
+                  4: (date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)),
+                  5: self._all_time()}
         if i in ranges:
             s, e = ranges[i]
             for w, d in ((self.start, s), (self.end, e)):
@@ -427,6 +428,15 @@ class ReportsDialog(QDialog):
                 w.setDate(QDate(d.year, d.month, d.day))
                 w.blockSignals(False)
             self.compute()
+
+    def _all_time(self) -> tuple[date, date]:
+        """From the first booking to the last, imported history included."""
+        q = "SELECT MIN(start), MAX(start) FROM bookings" + (" WHERE user_id=?" if self.only_me
+                                                              else "")
+        lo, hi = self.conn.execute(q, (self.me["id"],) if self.only_me else ()).fetchone()
+        today = date.today()
+        return (date.fromisoformat(lo[:10]) if lo else today,
+                max(date.fromisoformat(hi[:10]), today) if hi else today)
 
     def _custom(self, *_):
         self.preset.blockSignals(True)

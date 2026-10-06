@@ -652,3 +652,14 @@ def test_ppms_systems_are_matched_to_instruments(qtbot, lab, tmp_path):
     page.combos["amount"].setCurrentIndex(page.combos["amount"].findData("Amount"))
     assert page.system_combos["XPS / Bay 2"].currentData() == "XPS"   # kept on re-check
     assert page.source().systems == {"XPS / Bay 2": "XPS"}
+
+
+def test_reports_all_time_covers_imported_history(qtbot, lab):
+    from datetime import datetime as dt
+    from khervelab import ppms
+    ppms.record_history(lab["conn"], lab["xps"], lab["alice"]["id"], dt(2019, 3, 4, 9),
+                        dt(2019, 3, 4, 11), amount=80)
+    dlg = ReportsDialog(lab["conn"], lab["boss"])
+    qtbot.addWidget(dlg)
+    dlg.preset.setCurrentText("All time")
+    assert dlg.start.date().year() == 2019 and dlg.rep.total_cost == 80.0
