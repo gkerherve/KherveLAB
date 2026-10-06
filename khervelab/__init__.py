@@ -8,7 +8,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
-__version__ = "0.29"     # <major>.<minor>; the release adds .<commit count>
+__version__ = "0.30"     # <major>.<minor>; the release adds .<commit count>
 __app_name__ = "KherveLAB"
 __author__ = "Gwilherm Kerherve"
 

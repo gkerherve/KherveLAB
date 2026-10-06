@@ -4,8 +4,8 @@
 bumped by hand (see CLAUDE.md). The third number is ``git rev-list --count
 HEAD``, so every commit gives a new build number without editing anything.
 A frozen (PyInstaller) build has no ``.git``: the packaging scripts write the
-resolved ``<major>.<minor>.<n>+<sha>`` to ``khervelab/VERSION`` and bundle it,
-and that file is read first. With neither, the version is ``<major>.<minor>.0``.
+resolved ``<major>.<minor>.<n>+<sha>`` to ``khervelab/VERSION`` and bundle it.
+In a checkout git always wins, so a VERSION left by a local build is ignored. With neither, the version is ``<major>.<minor>.0``.
 
 Copyright (C) 2026 Gwilherm Kerherve
 Licensed under the GNU General Public License v3.0 or later (see LICENSE).
@@ -36,15 +36,17 @@ def git_version(base: str, root: Path | None = None) -> str:
 
 @lru_cache(maxsize=1)
 def full_version(base: str) -> str:
-    """The bundled VERSION if there is one, else git, else ``<base>.0``."""
+    """Git whenever this is a checkout (a VERSION file left by a local build
+    must not win), else the bundled VERSION of a frozen build, else
+    ``<base>.0``."""
+    if (_HERE.parent / ".git").exists():
+        return git_version(base)
     bundled = _HERE / "VERSION"
     if bundled.is_file():
         text = bundled.read_text(encoding="utf-8").strip()
         if text:
             return text
-    if not (_HERE.parent / ".git").exists():
-        return f"{base}.0"
-    return git_version(base)
+    return f"{base}.0"
 
 
 def release_version(base: str) -> str:

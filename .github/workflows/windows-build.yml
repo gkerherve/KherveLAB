@@ -82,6 +82,7 @@ jobs:
           set -euo pipefail
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[1-9][0-9]*$'
           test -f dist/KherveLAB/KherveLAB.exe
+          test -f dist/KherveLAB/KherveLAB-server.exe
           find dist/KherveLAB -path '*khervelab/templates/base.html' | grep -q .
           find dist/KherveLAB -path '*khervelab/static/khervecal.js' | grep -q .
           ! find dist/KherveLAB -maxdepth 3 -iname 'PySide6*' | grep -q .
@@ -94,7 +95,7 @@ jobs:
         # offscreen. A missing hidden import only shows up when the code
         # that needs it runs.
         shell: bash
-        run: python packaging/smoke_test.py dist/KherveLAB/KherveLAB.exe --version "$VERSION"
+        run: python packaging/smoke_test.py dist/KherveLAB/KherveLAB.exe --version "$VERSION" --server-exe dist/KherveLAB/KherveLAB-server.exe
 
       - name: Install silently, smoke-test the installed app, uninstall
         # The only place the installer itself is ever run: compiling it proves
@@ -111,7 +112,7 @@ jobs:
             -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "installer exited $($p.ExitCode)" }
           if (-not (Test-Path "$dir\KherveLAB.exe")) { Get-Content $log -Tail 40; throw "KherveLAB.exe was not installed" }
-          python packaging/smoke_test.py "$dir\KherveLAB.exe" --version $env:VERSION
+          python packaging/smoke_test.py "$dir\KherveLAB.exe" --version $env:VERSION --server-exe "$dir\KherveLAB-server.exe"
           if ($LASTEXITCODE -ne 0) { throw "smoke test of the installed app failed" }
           Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
           # Inno's uninstaller re-launches itself from %TEMP% and returns at once.

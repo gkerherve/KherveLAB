@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"  on this PC:    {local}")
     if args.host == "0.0.0.0":
         print(f"  on the network: http://{lan_address()}:{args.port}   (give this address to users)")
-    print("  stop with Ctrl+C")
+    print("  stop with Ctrl+C", flush=True)   # flushed: serve() blocks from here
     if args.open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(local)).start()
     from waitress import serve

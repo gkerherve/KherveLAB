@@ -167,9 +167,9 @@ Stack:
   minor version in the same commit as any change the user can see.
 - The version the app reports (title bar, About, `--serve`, MCP) and the
   release version is `RELEASE` = `<major>.<minor>.<commits>`, the third
-  number being `git rev-list --count HEAD` (`khervelab/_version.py`). A
-  frozen build reads it from `khervelab/VERSION`, which the packaging writes
-  (git-ignored). Never edit a build number by hand.
+  number being `git rev-list --count HEAD` (`khervelab/_version.py`). In a
+  checkout git always wins; only a frozen build reads `khervelab/VERSION`,
+  which the packaging writes (git-ignored). Never edit a build number by hand.
 - Run `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q` before
   committing. Logic and report
   changes come with tests.
@@ -195,5 +195,8 @@ build and upload artifacts, they never create a release.
   specs: PyQt6 only (PySide6 and other bindings are excluded), templates
   and static files bundled. The icons are rendered from
   `khervelab/gui/icon.py` by `packaging/make_icons.py`.
+- The Windows bundle also has `KherveLAB-server.exe` (`KherveLAB-server.py`,
+  a second console EXE in `KherveLAB.spec` sharing `_internal`): `--serve`
+  that can print its address. The installer gives it a Start-menu entry.
 - The smoke test drives the frozen app through `--serve` (/setup on a
   made-up lab, the exports), `--mcp-server` and the GUI offscreen.

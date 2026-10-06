@@ -91,10 +91,49 @@ exe = EXE(
     entitlements_file=None,
 )
 
+# KherveLAB.exe is windowed, so `KherveLAB.exe --serve` cannot print the
+# address to hand out. KherveLAB-server.exe is the same code as a console
+# program that always serves; it shares the _internal folder.
+sa = Analysis(
+    [common.SERVER_ENTRY],
+    pathex=[str(common.ROOT)],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=common.EXCLUDES + ["PyQt6"],
+    noarchive=False,
+)
+spyz = PYZ(sa.pure)
+server_exe = EXE(
+    spyz,
+    sa.scripts,
+    [],
+    exclude_binaries=True,
+    name="KherveLAB-server",
+    icon=ICO,
+    version=_version_resource(),
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
+    server_exe,
+    sa.binaries,
+    sa.datas,
     strip=False,
     upx=False,
     upx_exclude=[],

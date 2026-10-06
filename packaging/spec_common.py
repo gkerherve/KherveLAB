@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 APP_NAME = "KherveLAB"
 ENTRY = str(ROOT / "KherveLAB.py")
+#: Windows only: the console companion that runs the web pages (--serve)
+SERVER_ENTRY = str(ROOT / "KherveLAB-server.py")
 VERSION_FILE = ROOT / "khervelab" / "VERSION"
 
 #: Other Qt bindings and dev-only packages. KherveLAB is PyQt6-only; two Qt

@@ -15,6 +15,8 @@ data folder, this drives the real executable through:
    and a booking plus the finance report run (logic, analytics);
 3. the web exports, logged in as that manager: lab report PDF and Excel,
    statement PDF and Excel, CSV (reportlab, openpyxl, charts);
+   (with ``--server-exe``, also the Windows console ``KherveLAB-server.exe``:
+   it must print the address and serve /login);
 4. the desktop app on Qt's offscreen platform: it must still be running
    after a few seconds, i.e. PyQt6 and the GUI modules load.
 
@@ -120,6 +122,8 @@ def main() -> None:
     parser.add_argument("exe", help="the frozen executable")
     parser.add_argument("--version", help="the <major>.<minor>.<n> it must report")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--server-exe", help="Windows: the console KherveLAB-server.exe; it "
+                        "must print the address and serve the pages")
     args = parser.parse_args()
 
     exe = str(Path(args.exe).resolve())
@@ -204,6 +208,35 @@ def main() -> None:
         if b"<svg" not in page:
             _fail("the reports page has no charts")
         serve.terminate()
+
+        # 3b. the console web server (Windows) ----------------------------------
+        if args.server_exe:
+            sport = _free_port()
+            srv = subprocess.Popen([str(Path(args.server_exe).resolve()), "--data", str(data),
+                                    "--host", "127.0.0.1", "--port", str(sport)], env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            procs.append(srv)
+            lines = []
+            while not any("on this PC" in ln for ln in lines):
+                line = srv.stdout.readline().decode(errors="replace")
+                if not line:
+                    _fail(f"KherveLAB-server.exe printed no address: {lines}")
+                lines.append(line.rstrip())
+            print("server exe says: " + " | ".join(lines), flush=True)
+            if f"localhost:{sport}" not in "".join(lines):
+                _fail("KherveLAB-server.exe printed the wrong address")
+            for _ in range(60):                 # it prints just before it listens
+                try:
+                    status, _, page = Web(f"http://127.0.0.1:{sport}").get("/login")
+                    break
+                except OSError:
+                    time.sleep(0.5)
+            else:
+                _fail("KherveLAB-server.exe never answered")
+            if status != 200 or b"csrf" not in page:
+                _fail("KherveLAB-server.exe did not serve /login")
+            srv.terminate()
+            print("KherveLAB-server.exe prints its address and serves", flush=True)
 
         # 4. the desktop app ------------------------------------------------------
         gui = subprocess.Popen([exe, "--data", str(data)], env=env,

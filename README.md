@@ -409,7 +409,14 @@ by hand:
 ## Without a screen
 
 On a computer with no display, `python KherveLAB.py --serve [--port 8080]`
-runs only the web pages, served by waitress.
+runs only the web pages, served by waitress, and prints the address to give
+to users.
+
+With the Windows installer, use **Start ▸ KherveLAB web server** (or
+`KherveLAB-server.exe [--port 8080] [--data FOLDER]` in the install folder).
+It is a console program, so its window shows the address; close it to stop
+the pages. `KherveLAB.exe` itself has no console, so `KherveLAB.exe --serve`
+works but prints nothing.
 
 ## Tests
 
