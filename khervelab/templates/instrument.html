@@ -76,7 +76,7 @@
     hiddenDays: {{ '[]' if (inst.weekend_mode != 'closed' or inst.booking_mode == 'sessions') else '[0, 6]' }},
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
-    selectable: true, selectMirror: true,
+    selectable: true, selectMirror: true, selectMinDistance: 6, selectLongPressDelay: 600,
     selectOverlap: function (ev) { return ev.display === 'background'; },
     select: function (info) {
       startEl.value = local(info.start); endEl.value = local(info.end); estimate();

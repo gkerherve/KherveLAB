@@ -97,6 +97,10 @@ Stack:
   is read-only, and booking actions ask to log in and then continue
   (`switchUser(user, then)`). `gui/app.py` builds one `MainWindow` per user
   and carries the view across (`view_state` / `restore_view`).
+- A booking is never created by a plain click. In `CalendarView`, creation
+  needs a drag past `QApplication.startDragDistance()` or a press held for
+  `HOLD_MS` (which arms the slot). Move and resize also ignore movement
+  below that threshold.
 - The account controls sit in the tab bar's corner widget. Do not put an
   expanding spacer in the toolbar: it caused a layout-dependent segfault in
   `CalendarView.drawForeground` during the tests.

@@ -18,8 +18,8 @@ from datetime import date, datetime, timedelta
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import (QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
-                             QGraphicsView, QMenu)
+from PyQt6.QtWidgets import (QApplication, QGraphicsRectItem, QGraphicsScene,
+                             QGraphicsSimpleTextItem, QGraphicsView, QMenu)
 
 from .. import db, logic
 from .theme import Colours, readable_text
@@ -105,6 +105,7 @@ class CalendarView(QGraphicsView):
     moveRequested = pyqtSignal(int, object, object, int)       # booking, start, end, instrument
     openRequested = pyqtSignal(int)                             # booking id
     dayActivated = pyqtSignal(object)
+    hint = pyqtSignal(str)                                     # a tip for the status bar
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -534,6 +535,11 @@ class CalendarView(QGraphicsView):
     def _snap(minutes: float, g: int) -> int:
         return int(round(minutes / g) * g)
 
+    # A booking is never made by a plain click: the pointer must be dragged
+    # past the drag distance, or held still for HOLD_MS, which arms the slot
+    # (it lights up) and books on release.
+    HOLD_MS = 600
+
     def mousePressEvent(self, event) -> None:
         if self.conn is None:
             return
@@ -555,28 +561,43 @@ class CalendarView(QGraphicsView):
         minutes = self._minutes_at(pos.y())
         if item is not None:
             if not item.editable:
-                self._drag = {"mode": "open", "item": item, "col": col, "moved": False}
+                self._drag = {"mode": "open", "item": item, "col": col, "moved": False,
+                              "press": vp}
                 return
             resize = item.seg.is_last and item.rect().bottom() - pos.y() <= EDGE
             self._drag = {"mode": "resize" if resize else "move", "item": item, "col": col,
-                          "m": minutes, "moved": False}
+                          "m": minutes, "moved": False, "press": vp}
         else:
             if not self.columns[col].instrument:
                 return
             day = self.columns[col].day
             s0, e0 = self._snap_create(col, self._at(day, minutes), None)
-            self._drag = {"mode": "create", "col": col, "s": s0, "e": e0, "moved": False}
-        self._show_ghost()
+            drag = {"mode": "create", "col": col, "s": s0, "e": e0, "moved": False,
+                    "armed": False, "press": vp}
+            self._drag = drag
+            QTimer.singleShot(self.HOLD_MS, lambda: self._held(drag))
+
+    def _held(self, drag: dict) -> None:
+        """Press-and-hold arms a booking of the slot under the pointer."""
+        if self._drag is drag and not drag["armed"]:
+            drag["armed"] = True
+            self._show_ghost()
+
+    def _past_threshold(self, d: dict, vp) -> bool:
+        return (vp - d["press"]).manhattanLength() >= QApplication.startDragDistance()
 
     def mouseMoveEvent(self, event) -> None:
         if not self._drag or self._drag["mode"] == "open":
             return super().mouseMoveEvent(event)
-        pos = self.mapToScene(event.position().toPoint())
+        vp = event.position().toPoint()
         d = self._drag
+        if not d["moved"] and not self._past_threshold(d, vp):
+            return                                  # a click's jitter is not a drag
+        pos = self.mapToScene(vp)
         d["moved"] = True
-        g = self._slot(d["col"])
         m = self._minutes_at(pos.y())
         if d["mode"] == "create":
+            d["armed"] = True
             col = self._col_at(pos.x())
             day = self.columns[d["col"] if col is None else col].day
             d["e"] = self._snap_create(d["col"], d["s"], self._at(day, m))[1]
@@ -599,7 +620,11 @@ class CalendarView(QGraphicsView):
             return
         col = self.columns[d["col"]]
         if d["mode"] == "create":
-            self.createRequested.emit(col.instrument, d["s"], d["e"])
+            if d["armed"]:
+                self.createRequested.emit(col.instrument, d["s"], d["e"])
+            else:
+                self.hint.emit("To book, drag across the time you want, or press and hold "
+                               "on a slot.")
             return
         if not d["moved"]:
             self.openRequested.emit(d["item"].seg.booking["id"])
@@ -624,7 +649,7 @@ class CalendarView(QGraphicsView):
 
     def _show_ghost(self) -> None:
         d = self._drag
-        if not d or d["mode"] == "open":
+        if not d or d["mode"] == "open" or (d["mode"] == "create" and not d["armed"]):
             return
         if d["mode"] == "create":
             col = d["col"]

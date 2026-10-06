@@ -249,6 +249,7 @@ class MainWindow(QMainWindow):
         t.view.moveRequested.connect(self.move_booking)
         t.view.openRequested.connect(self.open_booking)
         t.view.dayActivated.connect(self.go_to_day)
+        t.view.hint.connect(lambda text: self.statusBar().showMessage(text, 5000))
         return t
 
     def refresh(self):
@@ -265,7 +266,7 @@ class MainWindow(QMainWindow):
         if tab.instrument_id is None:
             insts = self.instruments()
             tab.info.setText("Every instrument. Day view shows them side by side; drag in a "
-                             "column to book." if insts else
+                             "column, or press and hold on a slot, to book." if insts else
                              "No instruments yet." + (" Add them under Manage ▸ Instruments."
                                                       if self.admin else ""))
             tab.view.set_state(self.conn, self.me, insts, False, self.anchor, self.mode,

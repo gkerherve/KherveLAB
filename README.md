@@ -58,11 +58,14 @@ your choice with `--data FOLDER`.
 - **Views:** Day, Week and Month (Ctrl+1/2/3); ◀ ▶ and Today, or ←/→ and T.
   On the *All instruments* tab, the day view puts the instruments side by
   side, one column each.
-- **Booking:** drag across empty time to book. The booking window shows the
+- **Booking:** a plain click never books; to book, either **drag across
+  empty time**, or **press and hold** on a slot for about half a second until
+  it lights up, then let go. The booking window shows the
   hours, the cost at your rate, whether the booking will be approved at once,
   and anything that breaks the instrument's rules.
 - **Changing a booking:** drag it to move it, drag its bottom edge to resize
-  it, and double-click it for details, editing or cancelling. If you change a
+  it, and double-click it for details, editing or cancelling. A small slip of
+  the mouse while clicking a booking opens it rather than moving it. If you change a
   booking on an instrument that needs approval, it goes back to the lab
   manager.
 - **How bookings look:** a pending request is drawn dashed and pale. Closed

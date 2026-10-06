@@ -423,3 +423,64 @@ def test_disabled_while_logged_in_is_logged_out(qtbot, lab):
     lab["conn"].execute("UPDATE users SET status='disabled' WHERE id=?", (lab["alice"]["id"],))
     w.refresh()
     assert got == [None]
+
+
+def _press_point(w, d, minutes):
+    view = w.tabs.currentWidget().view
+    view.verticalScrollBar().setValue(int(8 * 60 * PPM))
+    p = view.mapFromScene(GUTTER + d.weekday() * view.colw + view.colw / 2,
+                          HEADER + minutes * PPM + 2)
+    return view, QPoint(p.x(), p.y())
+
+
+def _xps_week(qtbot, lab):
+    w = window(qtbot, lab)
+    d = weekday()
+    w.anchor = d
+    w.tabs.setCurrentIndex(2)
+    w.set_mode("week")
+    return w, d
+
+
+def test_a_plain_click_does_not_book(qtbot, lab):
+    w, d = _xps_week(qtbot, lab)
+    view, pt = _press_point(w, d, 9 * 60)
+    got, hints = [], []
+    view.createRequested.disconnect()
+    view.createRequested.connect(lambda *a: got.append(a))
+    view.hint.connect(hints.append)
+    qtbot.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    qtbot.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=pt, delay=50)
+    assert got == [] and hints and "press and hold" in hints[0]
+
+
+def test_press_and_hold_books_the_slot(qtbot, lab):
+    w, d = _xps_week(qtbot, lab)
+    view, pt = _press_point(w, d, 9 * 60)
+    got = []
+    view.createRequested.disconnect()
+    view.createRequested.connect(lambda *a: got.append(a))
+    qtbot.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    qtbot.wait(view.HOLD_MS + 150)
+    assert view._ghost is not None                     # armed: the slot lights up
+    qtbot.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    assert got == [(lab["xps"], at(d, 9), at(d, 9) + timedelta(minutes=30))]
+
+
+def test_jitter_on_a_booking_opens_it_instead_of_moving_it(qtbot, lab):
+    d = weekday()
+    res = logic.book(lab["conn"], lab["xps"], lab["alice"]["id"], at(d, 9), at(d, 11))
+    w, _ = _xps_week(qtbot, lab)
+    view, pt = _press_point(w, d, 10 * 60)
+    opened, moved = [], []
+    view.openRequested.disconnect()
+    view.openRequested.connect(opened.append)
+    view.moveRequested.connect(lambda *a: moved.append(a))
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QMouseEvent
+    qtbot.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    jitter = QPointF(pt.x() + 1, pt.y() + 1)
+    view.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, jitter, jitter, Qt.MouseButton.NoButton,
+                                    Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    qtbot.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    assert opened == [res.id] and moved == []
