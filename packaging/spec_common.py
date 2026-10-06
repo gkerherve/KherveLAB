@@ -65,7 +65,7 @@ def icons():
 
 def analysis_inputs():
     """(datas, binaries, hiddenimports) for Analysis()."""
-    from PyInstaller.utils.hooks import collect_submodules
+    from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
     datas = [
         # Flask finds these next to khervelab/web.py
@@ -81,4 +81,8 @@ def analysis_inputs():
         "openpyxl", "openpyxl.cell._writer", "openpyxl.chart",
         "reportlab.graphics.barcode", "reportlab.pdfbase._fontdata",
     ] + collect_submodules("reportlab.pdfbase") + collect_submodules("waitress")
+    # zoneinfo reads the lab's time zone from tzdata where the OS has no
+    # database (Windows); bundle it everywhere so every build behaves alike.
+    datas += collect_data_files("tzdata")
+    hiddenimports += collect_submodules("tzdata")
     return datas, [], hiddenimports
