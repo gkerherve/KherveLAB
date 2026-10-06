@@ -66,6 +66,9 @@ your choice with `--data FOLDER`.
   approved at once, the opening hours and the allowed booking length.
 - **Who booked:** on the *All instruments* week, each card shows the
   person's name first, then the instrument and the time.
+- **Which instrument:** on the *All instruments* tab each booking is filled
+  with its instrument's colour (the same colour as its tab). Lab settings can
+  switch back to one booked colour with an instrument stripe.
 - **Views:** Day, Week and Month (Ctrl+1/2/3); ◀ ▶ and Today, or ←/→ and T.
   On the *All instruments* tab, the day view puts the instruments side by
   side, one column each.

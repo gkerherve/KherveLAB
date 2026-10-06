@@ -421,6 +421,8 @@ class CalendarView(QGraphicsView):
             inst = self._inst(b["instrument_id"])
             colour = self.palette_cfg.get("booked", "#1f6feb")
             stripe = inst["colour"] if (inst and not self.single) else None
+            if stripe and db.setting(self.conn, "colour_by_instrument") == "1":
+                colour, stripe = stripe, None      # the card itself says which instrument
             state = logic.issue_state(self.conn, b["instrument_id"], logic.parse(b["start"]),
                                       logic.parse(b["end"]))
             outline = self.palette_cfg.get(state) if state != "ok" else None

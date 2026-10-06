@@ -768,6 +768,9 @@ class SettingsDialog(QDialog):
         form.addRow("Rate categories\n(one per line)", self.categories)
         form.addRow("", self.account_approval)
         form.addRow("", self.show_names)
+        self.by_instrument = QCheckBox("All instruments: colour each booking by its instrument")
+        self.by_instrument.setChecked(s("colour_by_instrument") == "1")
+        form.addRow("", self.by_instrument)
         self.colour_buttons = {}
         colours = QHBoxLayout()
         for key, label in (("free", "Free slot"), ("closed", "Closed"), ("booked", "Booked"),
@@ -830,6 +833,8 @@ class SettingsDialog(QDialog):
         db.set_setting(self.conn, "account_approval",
                        "1" if self.account_approval.isChecked() else "0")
         db.set_setting(self.conn, "show_names", "1" if self.show_names.isChecked() else "0")
+        db.set_setting(self.conn, "colour_by_instrument",
+                       "1" if self.by_instrument.isChecked() else "0")
         for key, b in self.colour_buttons.items():
             db.set_setting(self.conn, f"colour_{key}", b.property("colour"))
         self.accept()

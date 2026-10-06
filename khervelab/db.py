@@ -140,6 +140,7 @@ DEFAULT_SETTINGS = {
     "categories": "Internal\nExternal academic\nIndustry",
     "account_approval": "1",   # new accounts wait for the administrator
     "show_names": "1",         # logged-in users see who booked a slot
+    "colour_by_instrument": "1",  # All instruments view: bookings in their instrument's colour
     # calendar colours for slots
     "colour_free": "#f7f9fc",     # raised near-white card
     "colour_closed": "#e4e8ee",   # flat, calm background behind the cards

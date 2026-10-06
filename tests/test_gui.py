@@ -663,3 +663,30 @@ def test_reports_all_time_covers_imported_history(qtbot, lab):
     qtbot.addWidget(dlg)
     dlg.preset.setCurrentText("All time")
     assert dlg.start.date().year() == 2019 and dlg.rep.total_cost == 80.0
+
+
+def test_all_instruments_cards_take_the_instrument_colour(qtbot, tmp_path):
+    from khervelab import db, logic
+    from khervelab.gui.calendar import BookingItem, CalendarView
+    from datetime import datetime, timedelta
+    conn = db.connect(tmp_path / "lab.db")
+    db.init(conn)
+    uid = logic.create_user(conn, "boss", "password1", "Boss", role="admin", status="active")
+    me = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    a = logic.add_instrument(conn, "A", "", "auto", "#aa0000", "00:00", "24:00", 1, 1440)
+    b = logic.add_instrument(conn, "B", "", "auto", "#00aa00", "00:00", "24:00", 1, 1440)
+    day = datetime.combine(logic.now_local(conn).date() + timedelta(days=1), datetime.min.time())
+    logic.book(conn, a, uid, day.replace(hour=9), day.replace(hour=10))
+    insts = conn.execute("SELECT * FROM instruments").fetchall()
+
+    def fills():
+        v = CalendarView()
+        qtbot.addWidget(v)
+        from khervelab.gui import theme
+        from PyQt6.QtWidgets import QApplication
+        v.set_state(conn, me, insts, False, day.date(), "week",
+                    theme.apply(QApplication.instance(), False))
+        return [i.brush().color().name() for i in v.scene().items() if isinstance(i, BookingItem)]
+    assert fills() == ["#aa0000"]
+    db.set_setting(conn, "colour_by_instrument", "0")
+    assert fills() == [db.setting(conn, "colour_booked")]
