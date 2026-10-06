@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Choose your password{% endblock %}
+{% block content %}
+<div class="card narrow">
+<h1>Choose your password</h1>
+<p class="muted"><b>{{ username }}</b> was brought over from PPMS and has no password yet. Give the email address the lab has for you, and choose a password.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="username" value="{{ username }}">
+  <label>Email address</label><input type="email" name="email" required autocomplete="email">
+  <label>New password</label><input type="password" name="password" required minlength="8" autocomplete="new-password">
+  <label>Repeat it</label><input type="password" name="password2" required minlength="8" autocomplete="new-password">
+  <div class="actions"><button class="primary">Set password and log in</button></div>
+</form>
+</div>
+{% endblock %}

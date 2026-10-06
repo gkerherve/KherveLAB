@@ -44,7 +44,7 @@ class Line:
 
     def basis(self, currency: str) -> str:
         if self.price is not None:
-            return f"{currency}{self.price:,.2f}/session"
+            return f"{currency}{self.price:,.2f}" + ("/session" if self.session else " charged")
         return f"{currency}{self.rate:,.2f}/h"
 
 @dataclass

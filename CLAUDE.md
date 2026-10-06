@@ -40,6 +40,14 @@ Stack:
 - `khervelab/charts.py`: draws a `Chart` once as primitives, then outputs
   SVG (the app's `ChartWidget` and the web page) or a reportlab drawing
   (the PDF), so all three look the same. No matplotlib.
+- `khervelab/ppms.py`: imports PPMS exports (CSV or Excel). Each kind of
+  file has a list of `Field`s with usual header names; `guess_kind` and
+  `guess_mapping` match them, and `run` imports in one transaction (rolled
+  back for a dry run). Imported bookings bypass the booking rules, carry
+  the PPMS amount as `price` (no `session_id`, so it shows as a "charge"),
+  and `note` = `ppms.NOTE`. Imported users have an empty `password_hash`
+  until `logic.claim_account` (username + email on record). Never commit a
+  real PPMS export or anything taken from one: tests use made-up files.
 - `khervelab/gui/`: the desktop app.
   - `app.py`: startup, setup and login.
   - `main_window.py`: the schedule tabs.

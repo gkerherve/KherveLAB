@@ -222,6 +222,7 @@ class MainWindow(QMainWindow):
             am.addAction(act("Reports: finance and usage…", self.reports))
             am.addAction(act("Problems and out of order…", self.edit_issues))
             am.addAction(act("Lab settings…", self.edit_settings))
+            am.addAction(act("Import from PPMS…", self.import_ppms))
             am.addSeparator()
             am.addAction(act("Booking from other computers…", self.network))
         hm = mb.addMenu("&Help")
@@ -497,6 +498,13 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Thank you: the problem is on the calendar and the lab "
                                          "manager can see it.", 8000)
             self.refresh()
+
+    def import_ppms(self):
+        from .importer import PpmsImportDialog
+        dlg = PpmsImportDialog(self.conn, self)
+        dlg.exec()
+        if dlg.imported:
+            self.reload_instruments()
 
     def edit_issues(self):
         dlg = IssuesDialog(self.conn, self)

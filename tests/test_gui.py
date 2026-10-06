@@ -600,3 +600,31 @@ def test_users_editor_offers_the_superuser_role(qtbot, lab):
     dlg = UsersDialog(lab["conn"], lab["boss"])
     qtbot.addWidget(dlg)
     assert dlg.role.findData("superuser") >= 0
+
+
+def test_ppms_import_dialog(qtbot, lab, tmp_path):
+    from khervelab.gui.importer import PpmsImportDialog
+    f = tmp_path / "usage.csv"
+    f.write_text("System,Login,Start,End,Amount\n"
+                 "XPS,alice,2026-02-03 09:00,2026-02-03 11:00,90\n"
+                 "Raman,newbie,2026-02-04 09:00,2026-02-04 10:00,30\n", encoding="utf-8")
+    dlg = PpmsImportDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    page = dlg.add_file(f)
+    assert page.kind.currentData() == "bookings" and not page.missing()
+    assert page.combos["amount"].currentData() == "Amount"
+    dlg.backup_path = lambda: tmp_path / "backup.db"
+    from PyQt6.QtWidgets import QMessageBox
+    import khervelab.gui.importer as imp
+    dlg._run(dry=True)
+    assert "Dry run" in dlg.result.toPlainText() and not dlg.imported
+    old = imp.QMessageBox.question
+    imp.QMessageBox.question = lambda *a, **k: QMessageBox.StandardButton.Yes
+    try:
+        dlg._run(dry=False)
+    finally:
+        imp.QMessageBox.question = old
+    assert dlg.imported and (tmp_path / "backup.db").exists()
+    assert "2  bookings imported" in dlg.result.toPlainText()
+    n = lab["conn"].execute("SELECT COUNT(*) FROM instruments WHERE name='Raman'").fetchone()[0]
+    assert n == 1

@@ -267,6 +267,30 @@ The manager sees everything the users see, plus the following:
 - **Lab settings**: name, currency, time zone, rate categories, whether
   accounts need approval, and whether users see who booked a slot. Back up the
   database from here.
+- **Import from PPMS** (Manage menu): bring a lab's users, instruments,
+  prices, training and booking history over from PPMS. In PPMS, export
+  whichever you have as CSV or Excel: systems, users, prices, rights,
+  bookings or usage (with the amount charged), and incidents. Then add the
+  files in the import window:
+  - **Matching:** KherveLAB recognises each file and its columns, and shows
+    a preview. You can correct any match, and choose whether dates are day
+    first.
+  - **Dry run:** **Check** shows exactly what the import would create and
+    which rows it would skip, and why. Nothing is saved until **Import**.
+  - **Safe:** a backup of the lab is saved just before importing, and
+    importing the same files again skips what is already there.
+  - **What comes across:**
+    - bookings keep the amount PPMS charged, and the reports count them;
+    - a project or account code goes into the booking's purpose;
+    - PPMS user types are matched to your rate categories (an unknown type
+      becomes a new category);
+    - autonomous and superuser rights become "trained";
+    - new instruments start as trained-only auto, round the clock, so set
+      their hours and rules afterwards.
+  - **Passwords** cannot come from PPMS. The first time an imported person
+    logs in (in the app or on the web), they give the email address on
+    record and choose a password. People without an email address need the
+    lab manager to set one in **Users**.
 - **Booking from other computers** (Manage menu): starts or stops the booking
   web pages on the lab network and shows the address to hand out. People log
   in with the same accounts, and their bookings appear in the app within 30

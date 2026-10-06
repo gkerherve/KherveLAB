@@ -120,6 +120,45 @@ class SetupDialog(QDialog):
         self.accept()
 
 
+class ClaimDialog(QDialog):
+    """First log-in to an account imported from PPMS: prove the email on
+    record and choose a password."""
+
+    def __init__(self, conn, username: str, parent=None):
+        super().__init__(parent)
+        self.conn, self.username, self.user = conn, username, None
+        self.setWindowTitle("Choose your password")
+        intro = QLabel(f"<b>{username}</b> was brought over from PPMS and has no password "
+                       "yet. Give the email address the lab has for you, and choose a "
+                       "password.")
+        intro.setWordWrap(True)
+        self.email = QLineEdit()
+        self.pw1 = _password("at least 8 characters")
+        self.pw2 = _password()
+        form = QFormLayout()
+        form.addRow("Email address", self.email)
+        form.addRow("New password", self.pw1)
+        form.addRow("Repeat it", self.pw2)
+        bb = _buttons(self, "Set password and log in")
+        bb.accepted.connect(self._ok)
+        lay = QVBoxLayout(self)
+        lay.addWidget(intro)
+        lay.addLayout(form)
+        lay.addWidget(bb)
+
+    def _ok(self):
+        if self.pw1.text() != self.pw2.text():
+            QMessageBox.warning(self, "Choose your password", "The passwords differ.")
+            return
+        try:
+            self.user = logic.claim_account(self.conn, self.username, self.email.text(),
+                                            self.pw1.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Choose your password", str(exc).capitalize() + ".")
+            return
+        self.accept()
+
+
 class LoginDialog(QDialog):
     def __init__(self, conn, parent=None):
         super().__init__(parent)
@@ -150,6 +189,12 @@ class LoginDialog(QDialog):
 
     def _ok(self):
         u = logic.authenticate(self.conn, self.username.text(), self.password.text())
+        if u is None and logic.unclaimed(self.conn, self.username.text()):
+            claim = ClaimDialog(self.conn, self.username.text(), self)
+            if claim.exec():
+                u = claim.user
+            else:
+                return
         if u is None:
             QMessageBox.warning(self, "Log in", "Wrong username or password.")
             self.password.clear()

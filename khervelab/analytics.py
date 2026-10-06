@@ -181,7 +181,8 @@ def build(conn, start: date, end: date, user_id: int | None = None,
         g = r["group_name"] or "No group"
         by_group[g] += c
         by_user[r["full_name"]] += c
-        basis["Fixed session price" if r["price"] is not None else "Hourly rate"] += c
+        basis["Hourly rate" if r["price"] is None else
+              "Session price" if r["session_id"] else "Fixed charge (imported)"] += c
         gr = group_rows.setdefault(g, {"group": g, "users": set(), "bookings": 0, "hours": 0.0,
                                        "revenue": 0.0})
         gr["users"].add(r["user_id"])

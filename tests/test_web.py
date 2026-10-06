@@ -312,3 +312,25 @@ def test_superuser_books_and_manages_for_others_on_the_web(app, browser, new_bro
     assert a.get(f"/bookings?user={sue}").status_code == 403
     assert a.get(f"/api/calendar?instrument={iid}&start={day}T00:00&end={day}T23:59"
                  ).json["users"] == []
+
+
+def test_imported_account_is_claimed_on_the_web(browser, tmp_path):
+    setup_lab(browser)
+    browser.post("/logout")
+    conn = db.connect(tmp_path / "data" / "lab.db")
+    conn.execute("INSERT INTO users (username, password_hash, full_name, email, category, role, "
+                 "status, created) VALUES ('jdoe', '', 'Jo Doe', 'jo@uni.example', 'Internal', "
+                 "'user', 'active', '2026-01-01T00:00')")
+    conn.commit()
+    r = browser.post("/login", {"username": "jdoe", "password": "anything"})
+    assert r.headers["Location"].endswith("/claim?username=jdoe")
+    bad = browser.post("/claim", {"username": "jdoe", "email": "x@y.example",
+                                  "password": "newpassword1", "password2": "newpassword1"},
+                       follow_redirects=True).get_data(as_text=True)
+    assert "not the email address on record" in bad
+    browser.post("/claim", {"username": "jdoe", "email": "jo@uni.example",
+                            "password": "newpassword1", "password2": "newpassword1"})
+    assert "Jo Doe" in browser.text("/")
+    browser.post("/logout")
+    assert browser.get("/claim?username=jdoe").status_code == 302      # claimed once only
+    assert "Jo Doe" in login(browser, "jdoe", "newpassword1").get_data(as_text=True)

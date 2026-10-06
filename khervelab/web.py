@@ -146,6 +146,8 @@ def create_app(data_dir: Path | str) -> Flask:
         if request.method == "POST":
             u = logic.authenticate(g.db, request.form.get("username", ""),
                                    request.form.get("password", ""))
+            if u is None and logic.unclaimed(g.db, request.form.get("username", "")):
+                return redirect(url_for("claim", username=request.form.get("username", "")))
             if u is None:
                 flash("Wrong username or password.", "error")
             elif u["status"] == "pending":
@@ -160,6 +162,33 @@ def create_app(data_dir: Path | str) -> Flask:
                 return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//")
                                 else url_for("home"))
         return render_template("login.html")
+
+    @app.route("/claim", methods=["GET", "POST"])
+    def claim():
+        username = (request.values.get("username") or "").strip()
+        if not logic.unclaimed(g.db, username):
+            return redirect(url_for("login"))
+        if request.method == "POST":
+            f = request.form
+            if f.get("password") != f.get("password2"):
+                flash("The passwords differ.", "error")
+            else:
+                try:
+                    u = logic.claim_account(g.db, username, f.get("email", ""),
+                                            f.get("password", ""))
+                except ValueError as exc:
+                    flash(str(exc).capitalize() + ".", "error")
+                else:
+                    if u["status"] != "active":
+                        flash("Password set. Your account is not active yet; contact the lab "
+                              "manager.", "error")
+                        return redirect(url_for("login"))
+                    session.clear()
+                    session.permanent = True
+                    session["uid"] = u["id"]
+                    flash("Password set. Welcome!", "ok")
+                    return redirect(url_for("home"))
+        return render_template("claim.html", username=username)
 
     @app.route("/logout", methods=["POST"])
     def logout():

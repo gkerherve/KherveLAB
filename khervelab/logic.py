@@ -130,9 +130,32 @@ def create_user(conn, username: str, password: str, full_name: str, email: str =
 
 def authenticate(conn, username: str, password: str) -> sqlite3.Row | None:
     u = conn.execute("SELECT * FROM users WHERE username=?", (username.strip(),)).fetchone()
-    if u and check_password_hash(u["password_hash"], password):
+    if u and u["password_hash"] and check_password_hash(u["password_hash"], password):
         return u
     return None
+
+
+def unclaimed(conn, username: str) -> sqlite3.Row | None:
+    """An imported account (ppms.py) whose owner has not chosen a password yet."""
+    u = conn.execute("SELECT * FROM users WHERE username=?", (username.strip(),)).fetchone()
+    return u if u is not None and not u["password_hash"] else None
+
+
+def claim_account(conn, username: str, email: str, password: str) -> sqlite3.Row:
+    """The owner of an imported account sets its first password. The email on
+    record stands in for the old system's login, so nobody can take an account
+    by knowing its username alone."""
+    u = unclaimed(conn, username)
+    if u is None:
+        raise ValueError("this account already has a password")
+    if not u["email"]:
+        raise ValueError("this account has no email address on record: ask the lab manager "
+                         "to set your password")
+    if email.strip().lower() != u["email"].strip().lower():
+        raise ValueError("that is not the email address on record for this account")
+    set_password(conn, u["id"], password)
+    conn.commit()
+    return conn.execute("SELECT * FROM users WHERE id=?", (u["id"],)).fetchone()
 
 
 def set_password(conn, user_id: int, password: str) -> None:
@@ -863,5 +886,5 @@ def cost(conn, b) -> float:
 def price_label(conn, b) -> str:
     cur = db.setting(conn, "currency")
     if b["price"] is not None:
-        return f"{cur}{b['price']:,.2f} per session"
+        return f"{cur}{b['price']:,.2f} " + ("per session" if b["session_id"] else "charged")
     return f"{cur}{b['rate']:,.2f}/h"
