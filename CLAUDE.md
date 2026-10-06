@@ -34,6 +34,12 @@ Stack:
   hours. No web code here.
 - `khervelab/reports.py`: usage and cost reports, and the CSV, Excel and PDF
   exports.
+- `khervelab/analytics.py`: the finance and usage figures (headline
+  figures, `Chart` data, instrument and group tables) and the lab report
+  PDF and Excel exports. Charges go through `logic.cost`.
+- `khervelab/charts.py`: draws a `Chart` once as primitives, then outputs
+  SVG (the app's `ChartWidget` and the web page) or a reportlab drawing
+  (the PDF), so all three look the same. No matplotlib.
 - `khervelab/gui/`: the desktop app.
   - `app.py`: startup, setup and login.
   - `main_window.py`: the schedule tabs.

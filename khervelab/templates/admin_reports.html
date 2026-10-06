@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
 {% block content %}
-<h1>Usage and costs</h1>
+<h1>Reports: finance and usage</h1>
 <form class="card row" method="get">
   <div><label>From</label><input type="date" name="from" value="{{ f['from'] }}"></div>
   <div><label>To (inclusive)</label><input type="date" name="to" value="{{ f['to'] }}"></div>
@@ -17,8 +17,23 @@
     <a class="btn" href="{{ url_for('admin_report_export') }}?{{ q }}&format=xlsx">Excel</a>
     <a class="btn" href="{{ url_for('admin_report_export') }}?{{ q }}&format=csv">CSV</a>
   </div>
-  <p class="small muted">The PDF has one page per user, ready to send, plus a summary when it covers several users.</p>
+  <div class="actions">
+    <a class="btn primary" href="{{ url_for('admin_report_export') }}?{{ q }}&format=lab-pdf">Lab report PDF (charts)</a>
+    <a class="btn" href="{{ url_for('admin_report_export') }}?{{ q }}&format=lab-xlsx">Lab report Excel (charts)</a>
+  </div>
+  <p class="small muted">The PDF statement has one page per user, ready to send, plus a summary when it covers several users. The lab report has the headline figures, every chart, and the instrument and group tables.</p>
 </div>
+<div class="kpis">{% for k in ana.kpis %}<div class="kpi"><span>{{ k.label }}</span><b>{{ k.value }}</b><small>{{ k.note }}</small></div>{% endfor %}</div>
+{% for name, svgs in sections.items() %}
+<h2>{{ name }}</h2>
+<div class="charts">{% for svg in svgs %}<div class="chart">{{ svg }}</div>{% endfor %}</div>
+{% if name == 'Instruments' %}
+<div class="table-wrap"><table>
+<tr><th>Instrument</th><th class="num">Bookings</th><th class="num">Users</th><th class="num">Hours booked</th><th class="num">Bookable h</th><th class="num">Utilisation</th><th class="num">Revenue</th><th class="num">Out of order h</th><th class="num">Problem h</th></tr>
+{% for i in ana.instruments %}<tr><td>{{ i.name }}</td><td class="num">{{ i.bookings }}</td><td class="num">{{ i.users }}</td><td class="num">{{ '%.1f' % i.hours }}</td><td class="num">{{ '%.1f' % i.bookable }}</td><td class="num">{{ '%.1f' % i.utilisation }}%</td><td class="num">{{ i.revenue | money }}</td><td class="num">{{ '%.1f' % i.down_hours }}</td><td class="num">{{ '%.1f' % i.problem_hours }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+{% endfor %}
 <h2>By user</h2>
 <div class="table-wrap"><table>
 <tr><th>User</th><th class="num">Bookings</th><th class="num">Hours</th><th class="num">Cost</th></tr>

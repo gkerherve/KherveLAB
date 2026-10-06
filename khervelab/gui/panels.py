@@ -13,14 +13,15 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
-from PyQt6.QtCore import QDate, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtCore import QByteArray, QDate, QRectF, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QDesktopServices, QPainter
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QDialog, QFileDialog,
-                             QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
-                             QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
-                             QVBoxLayout, QWidget)
+                             QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+                             QInputDialog, QLabel, QMessageBox, QPushButton, QScrollArea,
+                             QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
-from .. import db, logic, reports
+from .. import analytics, charts, db, logic, reports
 
 
 def _table(headers: list[str], stretch: int = -1) -> QTableWidget:
@@ -231,6 +232,98 @@ class MyBookingsDialog(QDialog):
         dlg.exec()
 
 
+class ChartWidget(QWidget):
+    """Shows a charts.to_svg drawing, kept at its aspect ratio."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.renderer = QSvgRenderer(self)
+        self.setMinimumWidth(380)
+
+    def set_chart(self, chart):
+        self.renderer.load(QByteArray(charts.to_svg(chart).encode()))
+        self.setToolTip(chart.title)
+        self.update()
+
+    def resizeEvent(self, e):
+        # The width comes from the page; the height follows it, so a chart
+        # grows to fill its column instead of shrinking to the minimum.
+        h = int(self.width() * charts.H / charts.W)
+        if self.minimumHeight() != h:
+            self.setMinimumHeight(h)
+        super().resizeEvent(e)
+
+    def paintEvent(self, _):
+        w = min(self.width(), self.height() * charts.W / charts.H)
+        h = w * charts.H / charts.W
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.renderer.render(p, QRectF((self.width() - w) / 2, 0, w, h))
+        p.end()
+
+
+class _ChartPage(QScrollArea):
+    """A scrolling page of headline cards, charts two to a row, and tables."""
+
+    def __init__(self, keys: list[str], kpis: bool = False, tables: tuple = ()):
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("chartPage")
+        body.setStyleSheet("#chartPage { background: #e9edf2; }")
+        lay = QVBoxLayout(body)
+        self.cards: list[QLabel] = []
+        if kpis:
+            g = QGridLayout()
+            for n in range(6):
+                card = QLabel()
+                card.setStyleSheet("background: white; border-radius: 8px; padding: 10px;")
+                card.setTextFormat(Qt.TextFormat.RichText)
+                g.addWidget(card, n // 3, n % 3)
+                self.cards.append(card)
+            lay.addLayout(g)
+        grid = QGridLayout()
+        self.charts = {}
+        for n, k in enumerate(keys):
+            w = self.charts[k] = ChartWidget()
+            grid.addWidget(w, n // 2, n % 2)
+        lay.addLayout(grid)
+        self.tables = {}
+        for key, headers in tables:
+            lay.addWidget(QLabel(f"<b>{key.capitalize()}</b>"))
+            t = self.tables[key] = _table(headers, 0)
+            t.setMinimumHeight(220)
+            lay.addWidget(t)
+        lay.addStretch(1)
+        self.setWidget(body)
+
+    def show_analytics(self, a: analytics.Analytics):
+        for card, k in zip(self.cards, a.kpis):
+            card.setText(f"<span style='color:#6b7785'>{k.label}</span><br>"
+                         f"<span style='font-size:20px; font-weight:600'>{k.value}</span><br>"
+                         f"<span style='color:#6b7785; font-size:11px'>{k.note}</span>")
+        for k, w in self.charts.items():
+            w.set_chart(a.charts[k])
+        cur = a.currency
+        if "instruments" in self.tables:
+            t = self.tables["instruments"]
+            t.setRowCount(len(a.instruments))
+            for r, i in enumerate(a.instruments):
+                _put(t, r, (i["name"], i["bookings"], i["users"], f"{i['hours']:.1f}",
+                            f"{i['bookable']:.1f}", f"{i['utilisation']:.1f}%",
+                            f"{cur}{i['revenue']:,.2f}", f"{i['down_hours']:.1f}",
+                            f"{i['problem_hours']:.1f}"), right=tuple(range(1, 9)))
+            t.resizeColumnsToContents()
+        if "groups" in self.tables:
+            t = self.tables["groups"]
+            t.setRowCount(len(a.groups))
+            for r, g in enumerate(a.groups):
+                _put(t, r, (g["group"], g["users"], g["bookings"], f"{g['hours']:.1f}",
+                            f"{cur}{g['revenue']:,.2f}"), right=(1, 2, 3, 4))
+            t.resizeColumnsToContents()
+
+
 class ReportsDialog(QDialog):
     """Usage and costs for a period; the lab manager sees everyone, a user
     sees only their own statement."""
@@ -240,8 +333,9 @@ class ReportsDialog(QDialog):
         self.conn, self.me = conn, me
         self.only_me = only_me or me["role"] != "admin"
         self.rep: reports.Report | None = None
-        self.setWindowTitle("My statement" if self.only_me else "Usage and costs")
-        self.resize(980, 640)
+        self.ana: analytics.Analytics | None = None
+        self.setWindowTitle("My statement" if self.only_me else "Reports: finance and usage")
+        self.resize(1180 if not self.only_me else 980, 780 if not self.only_me else 640)
         today = date.today()
         last_end = today.replace(day=1) - timedelta(days=1)
         self.preset = QComboBox()
@@ -275,13 +369,30 @@ class ReportsDialog(QDialog):
         self.summary = QLabel()
         self.by_user = _table(["User", "Group", "Bookings", "Hours", "Cost"], 0)
         self.lines = _table(["User", "Instrument", "From", "To", "Hours", "Rate", "Cost"], 1)
-        tabs = QTabWidget()
+        tabs = self.tabs = QTabWidget()
+        self.pages: list[_ChartPage] = []
         if not self.only_me:
+            S = analytics.Analytics.SECTIONS
+            for title, page in (
+                    ("Overview", _ChartPage(["revenue_month", "revenue_instrument",
+                                             "revenue_category", "utilisation"], kpis=True)),
+                    ("Finance", _ChartPage(S["Finance"], tables=(
+                        ("groups", ["Group", "Users", "Bookings", "Hours", "Revenue"]),))),
+                    ("Usage", _ChartPage(S["Usage"])),
+                    ("Instruments", _ChartPage(S["Instruments"] + S["Downtime"], tables=(
+                        ("instruments", ["Instrument", "Bookings", "Users", "Hours booked",
+                                         "Bookable h", "Utilisation", "Revenue",
+                                         "Out of order h", "Problem h"]),)))):
+                tabs.addTab(page, title)
+                self.pages.append(page)
             tabs.addTab(self.by_user, "By user")
         tabs.addTab(self.lines, "Bookings")
         row = QHBoxLayout()
-        for text, kind in (("Save PDF statement…", "pdf"), ("Save Excel…", "xlsx"),
-                           ("Save CSV…", "csv")):
+        exports = [("Save PDF statement…", "pdf"), ("Save Excel…", "xlsx"), ("Save CSV…", "csv")]
+        if not self.only_me:
+            exports = [("Lab report PDF (charts)…", "lab-pdf"),
+                       ("Lab report Excel (charts)…", "lab-xlsx")] + exports
+        for text, kind in exports:
             b = QPushButton(text)
             b.clicked.connect(lambda _=False, k=kind: self._export(k))
             row.addWidget(b)
@@ -351,6 +462,11 @@ class ReportsDialog(QDialog):
                                  ln.basis(cur), f"{cur}{ln.cost:,.2f}"), right=(4, 5, 6))
         for t in (self.by_user, self.lines):
             t.resizeColumnsToContents()
+        if self.pages:
+            self.ana = analytics.build(self.conn, s, e, self.user.currentData() or None,
+                                       self.instrument.currentData() or None)
+            for page in self.pages:
+                page.show_analytics(self.ana)
 
     def _export(self, kind: str):
         if self.rep is None:
@@ -361,12 +477,16 @@ class ReportsDialog(QDialog):
             u = self.conn.execute("SELECT username FROM users WHERE id=?",
                                   (self.user.currentData(),)).fetchone()
             who = f"-{u['username']}"
-        name = f"usage{who}-{s:%Y%m%d}-{e:%Y%m%d}.{kind}"
+        lab = kind.startswith("lab-")
+        ext = kind.removeprefix("lab-")
+        name = f"{'lab-report' if lab else 'usage'}{who}-{s:%Y%m%d}-{e:%Y%m%d}.{ext}"
         filters = {"pdf": "PDF (*.pdf)", "xlsx": "Excel workbook (*.xlsx)", "csv": "CSV (*.csv)"}
-        path, _ = QFileDialog.getSaveFileName(self, "Save report", name, filters[kind])
+        path, _ = QFileDialog.getSaveFileName(self, "Save report", name, filters[ext])
         if not path:
             return
-        data = {"pdf": lambda: reports.to_pdf(self.rep),
+        data = {"lab-pdf": lambda: analytics.to_pdf(self.ana),
+                "lab-xlsx": lambda: analytics.to_xlsx(self.ana),
+                "pdf": lambda: reports.to_pdf(self.rep),
                 "xlsx": lambda: reports.to_xlsx(self.rep),
                 "csv": lambda: reports.to_csv(self.rep).encode("utf-8-sig")}[kind]()
         Path(path).write_bytes(data)

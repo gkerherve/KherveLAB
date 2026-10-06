@@ -227,9 +227,15 @@ def test_reports_dialog(qtbot, lab):
     dlg.start.setDate(QDate(d.year, d.month, d.day))
     dlg.end.setDate(QDate(d.year, d.month, d.day))
     assert dlg.rep.total_cost == 90.0 and dlg.by_user.rowCount() == 1
+    tabs = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
+    assert tabs[:4] == ["Overview", "Finance", "Usage", "Instruments"]
+    assert dlg.ana.kpis[0].value.endswith("90.00")
+    assert "£90.00" in dlg.pages[0].cards[0].text()
+    assert dlg.pages[0].charts["revenue_month"].renderer.isValid()
     mine = ReportsDialog(lab["conn"], lab["alice"])
     qtbot.addWidget(mine)
     assert not mine.user.isEnabled()          # users only see their own statement
+    assert not mine.pages and mine.tabs.count() == 1
 
 
 def test_network_server_serves_the_same_lab(qtbot, lab):

@@ -20,8 +20,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, request,
                    send_file, session, url_for)
+from markupsafe import Markup
 
-from . import __version__, db, logic, reports
+from . import __version__, analytics, charts, db, logic, reports
 
 
 
@@ -571,7 +572,10 @@ def create_app(data_dir: Path | str) -> Flask:
     def admin_reports():
         start, end, uid, iid = _report_args()
         rep = reports.build(g.db, start, end, uid, iid)
-        return render_template("admin_reports.html", rep=rep, f={
+        ana = analytics.build(g.db, start, end, uid, iid)
+        sections = {name: [Markup(charts.to_svg(ana.charts[k])) for k in keys]
+                    for name, keys in analytics.Analytics.SECTIONS.items()}
+        return render_template("admin_reports.html", rep=rep, ana=ana, sections=sections, f={
             "from": start.isoformat(), "to": end.isoformat(), "user": uid or "",
             "instrument": iid or ""}, users=_all(g.db, "users", "full_name"),
             instruments=_all(g.db, "instruments"))
@@ -587,6 +591,15 @@ def create_app(data_dir: Path | str) -> Flask:
             who = f"-{u['username']}" if u else ""
         stem = f"usage{who}-{start:%Y%m%d}-{end:%Y%m%d}"
         kind = request.args.get("format", "csv")
+        if kind in ("lab-pdf", "lab-xlsx"):
+            ana = analytics.build(g.db, start, end, uid, iid)
+            stem = stem.replace("usage", "lab-report", 1)
+            if kind == "lab-pdf":
+                return send_file(io.BytesIO(analytics.to_pdf(ana)), mimetype="application/pdf",
+                                 as_attachment=True, download_name=f"{stem}.pdf")
+            return send_file(io.BytesIO(analytics.to_xlsx(ana)), as_attachment=True,
+                             download_name=f"{stem}.xlsx", mimetype="application/vnd."
+                             "openxmlformats-officedocument.spreadsheetml.sheet")
         if kind == "pdf":
             return send_file(io.BytesIO(reports.to_pdf(rep)), mimetype="application/pdf",
                              as_attachment=True, download_name=f"{stem}.pdf")

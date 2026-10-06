@@ -237,11 +237,33 @@ The manager sees everything the users see, plus the following:
   - **Trained users.**
 - **Users**: approve, disable or edit accounts, set rate categories and
   training, reset passwords, or add a co-manager.
-- **Reports**: usage and costs for any period. You can filter by user or
-  instrument. Save formats:
-  - **PDF**: one statement page per user, ready to send, plus a summary;
-  - **Excel**;
-  - **CSV**.
+- **Reports** (Ctrl+E): finance and usage for any period (last month, this
+  year, a custom range…). You can filter by user or instrument.
+  - **Overview:** the headline figures (revenue, hours booked and the share
+    of bookable time, active and new users, money waiting for approval,
+    cancellations, out-of-order hours), with the key charts.
+  - **Finance:** revenue by month (bar), by instrument and by user (bars),
+    by user category, by group and by price basis (session price or hourly
+    rate) (doughnuts), plus a table per group.
+  - **Usage:** hours booked by month (line), a weekday × hour heat map of
+    when the lab is used, the daytime/evening/weekend split per instrument
+    (stacked bars), what happened to requests (approved, pending, rejected,
+    cancelled), and how far ahead people book.
+  - **Instruments:** utilisation (booked ÷ bookable hours), downtime and
+    problems per instrument, and a table with bookings, users, hours,
+    revenue and downtime.
+  - **By user** and **Bookings:** the statement tables.
+
+  Save formats:
+  - **Lab report PDF**: the headline figures, every chart and the tables;
+  - **Lab report Excel**: a sheet per chart with its numbers and a native
+    Excel chart, ready to reuse;
+  - **PDF statement**: one page per user, ready to send, plus a summary;
+  - **Excel** and **CSV** of the bookings.
+
+  The web reports page shows the same figures and charts and offers the
+  same downloads. Revenue only counts approved bookings, at the price fixed
+  when each was made.
 - **Lab settings**: name, currency, time zone, rate categories, whether
   accounts need approval, and whether users see who booked a slot. Back up the
   database from here.

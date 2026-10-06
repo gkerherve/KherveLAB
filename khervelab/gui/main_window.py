@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
             am.addAction(self.a_requests)
             am.addAction(act("Instruments and rates…", self.edit_instruments))
             am.addAction(act("Users…", self.edit_users))
-            am.addAction(act("Usage and costs…", self.reports))
+            am.addAction(act("Reports: finance and usage…", self.reports))
             am.addAction(act("Problems and out of order…", self.edit_issues))
             am.addAction(act("Lab settings…", self.edit_settings))
             am.addSeparator()

@@ -96,6 +96,11 @@ def test_full_flow_register_approve_book_report(app, browser, new_browser):
     assert "CO oxidation on Pt" in csv.get_data(as_text=True)
     xlsx = browser.get(f"/admin/reports/export?from={day}&to={day}&format=xlsx")
     assert xlsx.data[:2] == b"PK"
+    assert "<svg" in rep and "Revenue by instrument" in rep and "Utilisation" in rep
+    lab_pdf = browser.get(f"/admin/reports/export?from={day}&to={day}&format=lab-pdf")
+    assert lab_pdf.data[:4] == b"%PDF" and "lab-report" in lab_pdf.headers["Content-Disposition"]
+    lab_xlsx = browser.get(f"/admin/reports/export?from={day}&to={day}&format=lab-xlsx")
+    assert lab_xlsx.data[:2] == b"PK"
 
 
 def test_users_cannot_reach_admin_pages(app, browser, new_browser):
