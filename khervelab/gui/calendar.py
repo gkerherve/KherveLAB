@@ -265,9 +265,12 @@ class CalendarView(QGraphicsView):
                 how = "one booking" if p.slot is None else f"{logic.fmt_duration(p.slot)} slots"
                 sc.addLine(x + 1, r.top(), x + self.colw - 1, r.top(),
                            QPen(QColor(inst["colour"]), 1, Qt.PenStyle.DashLine)).setZValue(-0.5)
-                t = sc.addSimpleText(f"{p.label} {p.start:%H:%M}–{p.end:%H:%M} · {how}", small)
+                span = (f"{p.start:%H:%M}–{p.end:%H:%M}" if (p.end - p.start) <= timedelta(days=1)
+                        else f"{p.start:%a %H:%M} → {p.end:%a %H:%M}")
+                t = sc.addSimpleText(f"{p.label} {span} · {how}", small)
                 t.setBrush(QColor(c.muted))
-                t.setPos(x + self.colw - t.boundingRect().width() - 4, r.top() + 1)
+                _clip(t, self.colw - 4)               # never spill into the next column
+                t.setPos(x + max(4, self.colw - t.boundingRect().width() - 4), r.top() + 1)
                 t.setZValue(-0.5)
 
     def _draw_grid(self) -> None:
@@ -370,7 +373,9 @@ class CalendarView(QGraphicsView):
             x = GUTTER + seg.col * self.colw + 3 + seg.lane * w
             rect = QRectF(x, HEADER + seg.m0 * PPM + 1, w - 2, (seg.m1 - seg.m0) * PPM - 2)
             s, e = logic.parse(b["start"]), logic.parse(b["end"])
-            when = f"{s:%H:%M}–{e:%H:%M}"
+            # a run of a day or more shows its days: 08:00–08:00 would read as nothing
+            when = (f"{s:%H:%M}–{e:%H:%M}" if e - s < timedelta(days=1)
+                    else f"{s:%a %H:%M}–{e:%a %H:%M}")
             pend = " (pending)" if b["status"] == "pending" else ""
             if self.mode == WEEK and not self.single and len(self.instruments) > 1:
                 title, sub = (inst["name"] if inst else "?"), f"{when} · {b['who']}{pend}"

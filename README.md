@@ -143,8 +143,12 @@ The manager sees everything the users see, plus the following:
     - **Evening (Mon–Fri)**, e.g. 17:00 → 08:00. It is either closed, booked
       as **one booking for the whole evening**, booked in **the same slots
       as the daytime**, or booked in **its own slot length**.
-    - **Weekend (Sat and Sun, each day)**, e.g. 08:00 → 08:00. It has the
-      same four choices.
+    - **Weekend**, with the same four choices. It runs either **each day**
+      (Saturday and Sunday separately, e.g. 08:00 → 08:00), or as **the whole
+      weekend from Saturday to Monday**. For example, Saturday 08:00 →
+      Monday 08:00 is 48 h, following a Friday evening of 17:00 → Saturday
+      08:00. Weekend slots go up to 72 h, so a whole weekend can be one
+      booking or, say, two 24 h slots.
 
     How the periods work:
     - **Slot grid:** slots are counted from the start of each period, and a

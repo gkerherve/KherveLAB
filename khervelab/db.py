@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS instruments (
     weekend_mode TEXT NOT NULL DEFAULT 'closed',
     weekend_start TEXT NOT NULL DEFAULT '08:00',
     weekend_end TEXT NOT NULL DEFAULT '20:00',
-    weekend_slot INTEGER NOT NULL DEFAULT 60
+    weekend_slot INTEGER NOT NULL DEFAULT 60,
+    -- 'daily': a window on Saturday and one on Sunday; 'whole': one window from
+    -- Saturday weekend_start to Monday weekend_end (e.g. a 48 h weekend run)
+    weekend_span TEXT NOT NULL DEFAULT 'daily'
 );
 
 -- fixed sessions, for instruments booked by session rather than free time;
@@ -147,6 +150,7 @@ MIGRATIONS = [
     ("instruments", "weekend_start", "TEXT NOT NULL DEFAULT '08:00'"),
     ("instruments", "weekend_end", "TEXT NOT NULL DEFAULT '20:00'"),
     ("instruments", "weekend_slot", "INTEGER NOT NULL DEFAULT 60"),
+    ("instruments", "weekend_span", "TEXT NOT NULL DEFAULT 'daily'"),
 ]
 
 

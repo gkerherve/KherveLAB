@@ -208,7 +208,7 @@ def periods(inst, start: datetime, end: datetime) -> list[Period]:
     (Saturday and Sunday), each in its own way. A window that would overlap
     an earlier one is trimmed, so they never double up."""
     out: list[Period] = []
-    day = start.date() - timedelta(days=1)
+    day = start.date() - timedelta(days=2)       # a whole weekend can start two days back
     while day <= end.date():
         weekday = day.weekday() < 5
         if weekday:
@@ -218,8 +218,16 @@ def periods(inst, start: datetime, end: datetime) -> list[Period]:
                 s0, s1 = _span(day, inst["evening_start"], inst["evening_end"])
                 out.append(Period("evening", s0, s1, _slot_for(inst, "evening")))
         elif inst["weekend_mode"] != "closed":
-            s0, s1 = _span(day, inst["weekend_start"], inst["weekend_end"])
-            out.append(Period("weekend", s0, s1, _slot_for(inst, "weekend")))
+            if inst["weekend_span"] == "whole":
+                if day.weekday() == 5:               # Saturday start -> Monday end
+                    s0 = _span(day, inst["weekend_start"], inst["weekend_start"])[0]
+                    monday = day + timedelta(days=2)
+                    s1 = datetime(monday.year, monday.month, monday.day) + timedelta(
+                        minutes=minutes_of(inst["weekend_end"]))
+                    out.append(Period("weekend", s0, s1, _slot_for(inst, "weekend")))
+            else:
+                s0, s1 = _span(day, inst["weekend_start"], inst["weekend_end"])
+                out.append(Period("weekend", s0, s1, _slot_for(inst, "weekend")))
         day += timedelta(days=1)
     out.sort(key=lambda p: p.start)
     trimmed: list[Period] = []
@@ -325,6 +333,9 @@ def describe_periods(inst) -> str:
             continue
         how = ("as one booking" if mode == "block" else
                f"in {fmt_duration(_slot_for(inst, kind))} slots")
+        if kind == "weekend" and inst["weekend_span"] == "whole":
+            parts.append(f"Weekend Sat {inst['weekend_start']} → Mon {inst['weekend_end']} {how}")
+            continue
         parts.append(f"{PERIOD_NAMES[kind]} {window(inst[kind + '_start'], inst[kind + '_end'])}"
                      + (" each day" if kind == "weekend" else "") + f" {how}")
     return " · ".join(parts)

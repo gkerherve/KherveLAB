@@ -484,3 +484,21 @@ def test_jitter_on_a_booking_opens_it_instead_of_moving_it(qtbot, lab):
                                     Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
     qtbot.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
     assert opened == [res.id] and moved == []
+
+
+def test_editor_whole_weekend_with_a_48_hour_slot(qtbot, lab):
+    from PyQt6.QtCore import QTime
+    dlg = InstrumentsDialog(lab["conn"])
+    qtbot.addWidget(dlg)
+    we = dlg.period["weekend"]
+    we["mode"].setCurrentIndex(we["mode"].findData("own"))
+    dlg.weekend_span.setCurrentIndex(dlg.weekend_span.findData("whole"))
+    we["start"].setTime(QTime(8, 0))
+    we["end"].setTime(QTime(8, 0))
+    assert "= 48 h" in dlg.weekend_span_note.text()
+    we["slot"].setMinutes(48 * 60)
+    assert we["slot"].minutes() == 48 * 60                 # beyond the old 24 h limit
+    dlg._save()
+    row = lab["conn"].execute("SELECT weekend_span, weekend_slot FROM instruments WHERE id=?",
+                              (dlg.current,)).fetchone()
+    assert tuple(row) == ("whole", 48 * 60)

@@ -66,7 +66,9 @@ Stack:
 - A free-time instrument has three periods (`logic.periods`):
   - daytime (Mon–Fri, `open_time`–`close_time`, `slot_minutes`);
   - evening (Mon–Fri);
-  - weekend (each Sat and Sun).
+  - weekend: each Sat and Sun, or with `weekend_span='whole'` one window
+    from Saturday `weekend_start` to Monday `weekend_end`. Weekend slots go
+    up to 72 h; daytime and evening slots up to 24 h.
 
   Evening and weekend each have a `*_mode` of `closed`, `block` (taken
   whole), `daytime` (daytime slot length) or `own` (`*_slot`). Windows wrap

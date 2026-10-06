@@ -125,3 +125,42 @@ def test_describe(conn):
     text = logic.describe_periods(inst)
     assert text == ("Daytime 08:00–17:00 in 4.5 h slots · Evening 17:00–08:00 (next day) as one "
                     "booking · Weekend 08:00–08:00 (next day) each day in 12 h slots")
+
+
+def test_whole_weekend_saturday_to_monday(conn):
+    """Friday evening 17:00 -> Sat 08:00 (15 h), then the weekend from
+    Saturday 08:00 to Monday 08:00 (48 h) as one booking."""
+    i, inst = lab(conn, evening="block", weekend="block", weekend_span="whole",
+                  weekend_start="08:00", weekend_end="08:00")
+    sat = saturday()
+    fri, mon = sat - timedelta(days=1), sat + timedelta(days=2)
+    ps = logic.periods(inst, at(fri, "12:00"), at(mon, "12:00"))
+    got = [(p.kind, p.start, p.end) for p in ps]
+    assert ("evening", at(fri, "17:00"), at(sat, "08:00")) in got
+    assert ("weekend", at(sat, "08:00"), at(mon, "08:00")) in got
+    assert ("day", at(mon, "08:00"), at(mon, "17:00")) in got
+    u = user(conn)
+    with pytest.raises(logic.BookingError, match="one block"):
+        logic.book(conn, i, u, at(sat, "08:00"), at(sat, "08:00", 1))
+    res = logic.book(conn, i, u, at(sat, "08:00"), at(mon, "08:00"))       # 48 h
+    b = conn.execute("SELECT * FROM bookings WHERE id=?", (res.id,)).fetchone()
+    assert logic.hours(conn, logic.parse(b["start"]), logic.parse(b["end"])) in (47, 48, 49)
+    assert "Weekend Sat 08:00 → Mon 08:00 as one booking" in logic.describe_periods(inst)
+
+
+def test_friday_evening_plus_whole_weekend_in_one_go(conn):
+    i, _ = lab(conn, evening="block", weekend="block", weekend_span="whole")
+    sat = saturday()
+    fri, mon = sat - timedelta(days=1), sat + timedelta(days=2)
+    logic.book(conn, i, user(conn), at(fri, "17:00"), at(mon, "08:00"))  # 63 h
+
+
+def test_whole_weekend_in_long_slots(conn):
+    i, inst = lab(conn, weekend="own", weekend_span="whole", weekend_slot=24 * 60)
+    sat = saturday()
+    u = user(conn)
+    logic.book(conn, i, u, at(sat, "08:00"), at(sat, "08:00", 1))        # first 24 h slot
+    logic.book(conn, i, user(conn, "bob"), at(sat, "08:00", 1), at(sat, "08:00", 2))
+    with pytest.raises(logic.BookingError, match="24 h slot of the weekend"):
+        logic.book(conn, i, user(conn, "cy"), at(sat, "20:00", 7), at(sat, "20:00", 8))
+    assert logic.snap_start(inst, at(sat, "15:00", 1)) == at(sat, "08:00", 1)

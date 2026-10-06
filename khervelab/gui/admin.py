@@ -306,8 +306,16 @@ class InstrumentsDialog(QDialog):
             for key, label in logic.PERIOD_MODES.items():
                 how.addItem(label, key)
             how.currentIndexChanged.connect(self._periods_changed)
+            # a whole weekend (Sat -> Mon) can be 48 h or more, so its slot may be too
             self.period[kind] = {"mode": how, "start": time_edit(), "end": time_edit(),
-                                 "slot": DurationEdit(1440)}
+                                 "slot": DurationEdit(1440 if kind == "evening" else 72 * 60)}
+        self.weekend_span = QComboBox()
+        self.weekend_span.addItem("Each day: Saturday and Sunday separately", "daily")
+        self.weekend_span.addItem("Whole weekend: from Saturday to Monday", "whole")
+        self.weekend_span.currentIndexChanged.connect(self._periods_changed)
+        for kind in ("weekend",):
+            self.period[kind]["start"].timeChanged.connect(self._periods_changed)
+            self.period[kind]["end"].timeChanged.connect(self._periods_changed)
         for c, head in enumerate(("", "From", "To", "Booked as", "Slot")):
             lab = QLabel(f"<b>{head}</b>")
             rg.addWidget(lab, 0, c)
@@ -315,7 +323,7 @@ class InstrumentsDialog(QDialog):
                 ("Evening (Mon–Fri)", self.period["evening"]["start"],
                  self.period["evening"]["end"], self.period["evening"]["mode"],
                  self.period["evening"]["slot"]),
-                ("Weekend (Sat & Sun, each day)", self.period["weekend"]["start"],
+                ("Weekend", self.period["weekend"]["start"],
                  self.period["weekend"]["end"], self.period["weekend"]["mode"],
                  self.period["weekend"]["slot"]))
         for r, (label, w1, w2, w3, w4) in enumerate(rows, start=1):
@@ -327,7 +335,14 @@ class InstrumentsDialog(QDialog):
                          ("Book ahead up to", self.ahead)):
             limits.addWidget(QLabel(label))
             limits.addWidget(w, 1)
-        rg.addLayout(limits, 4, 0, 1, 5)
+        span_row = QHBoxLayout()
+        span_row.addWidget(QLabel("Weekend runs"))
+        span_row.addWidget(self.weekend_span, 1)
+        self.weekend_span_note = QLabel()
+        self.weekend_span_note.setStyleSheet("color: #57606a;")
+        span_row.addWidget(self.weekend_span_note, 1)
+        rg.addLayout(span_row, 4, 0, 1, 5)
+        rg.addLayout(limits, 6, 0, 1, 5)
         hint = QLabel("An end at or before the start runs into the next day (an evening of "
                       "17:00 → 08:00). Slots are counted from the start of each period, and a "
                       "booking is a whole number of slots: a 4.5 h daytime slot from 08:00 gives "
@@ -335,7 +350,7 @@ class InstrumentsDialog(QDialog):
                       "day at once. Shortest and longest apply to daytime bookings.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #57606a;")
-        rg.addWidget(hint, 5, 0, 1, 5)
+        rg.addWidget(hint, 7, 0, 1, 5)
 
         trained = QGroupBox("Trained users (book at once with 'automatic for trained users')")
         tl = QVBoxLayout(trained)
@@ -424,6 +439,7 @@ class InstrumentsDialog(QDialog):
             w["start"].setTime(_time(i[f"{kind}_start"]))
             w["end"].setTime(_time(i[f"{kind}_end"]))
             w["slot"].setMinutes(i[f"{kind}_slot"])
+        self.weekend_span.setCurrentIndex(max(0, self.weekend_span.findData(i["weekend_span"])))
         (self.mode_sessions if i["booking_mode"] == "sessions" else self.mode_free).setChecked(True)
         self.sessions.load(i["id"])
         self._mode_changed()
@@ -459,6 +475,16 @@ class InstrumentsDialog(QDialog):
             w["start"].setEnabled(usable and mode != "closed")
             w["end"].setEnabled(usable and mode != "closed")
             w["slot"].setEnabled(usable and mode == "own")
+        we = self.period["weekend"]
+        open_weekend = free and we["mode"].currentData() != "closed"
+        self.weekend_span.setEnabled(open_weekend)
+        if self.weekend_span.currentData() == "whole":
+            st, en = we["start"].time(), we["end"].time()
+            hours = 48 + (st.secsTo(en) / 3600)
+            self.weekend_span_note.setText(
+                f"Sat {st.toString('HH:mm')} → Mon {en.toString('HH:mm')} = {hours:g} h")
+        else:
+            self.weekend_span_note.setText("an end at or before the start is the next morning")
 
     def _add(self):
         iid = logic.add_instrument(self.conn, "New instrument", "", "manual", "#1f6feb", "08:00",
@@ -514,11 +540,12 @@ class InstrumentsDialog(QDialog):
             "approval=?, slot_minutes=?, min_minutes=?, max_minutes=?, max_days_ahead=?, "
             "open_time=?, close_time=?, weekends=?, booking_mode=?, evening_mode=?, "
             "evening_start=?, evening_end=?, evening_slot=?, weekend_mode=?, weekend_start=?, "
-            "weekend_end=?, weekend_slot=? WHERE id=?",
+            "weekend_end=?, weekend_slot=?, weekend_span=? WHERE id=?",
             (name, self.description.toPlainText().strip(), self.location.text().strip(),
              self.colour, int(self.active.isChecked()), approval, slot, shortest, longest,
              self.ahead.value(), o, c,
              int(per["weekend"][0] != "closed"), booking_mode, *per["evening"], *per["weekend"],
+             self.weekend_span.currentData(),
              self.current))
         for cat, sb in self.rates.items():
             self.conn.execute("INSERT INTO rates (instrument_id, category, rate) VALUES (?,?,?) "
