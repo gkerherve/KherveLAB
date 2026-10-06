@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Instruments</h1>
 {% if not instruments %}
-  <div class="card">No instruments yet.{% if me.role == 'admin' %} <a href="{{ url_for('admin_instrument') }}">Add the first one</a>.{% endif %}</div>
+  <div class="card">No instruments yet.{% if me.role == 'admin' %} Add them in the KherveLAB app (Manage ▸ Instruments).{% endif %}</div>
 {% endif %}
 <div class="grid">
 {% for i in instruments %}

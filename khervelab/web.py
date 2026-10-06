@@ -241,7 +241,10 @@ def create_app(data_dir: Path | str) -> Flask:
                              "days": logic.days_label(r["days"]),
                              "cost": price if price is not None else hrs * my_rate,
                              "fixed": price is not None})
+        now = logic.now_local(g.db)
         return render_template("instrument.html", inst=inst, my_rate=my_rate, sessions=sessions,
+                               today=now.date().isoformat(),
+                               now_minutes=now.hour * 60 + now.minute,
                                periods=logic.describe_periods(inst),
                                trained=logic.is_authorised(g.db, g.user["id"], iid))
 
@@ -257,9 +260,8 @@ def create_app(data_dir: Path | str) -> Flask:
         except ValueError:
             flash("Choose a start and an end time.", "error")
             return redirect(url_for("instrument", iid=iid))
-        if inst["booking_mode"] == "free":     # to the slots or whole evening/weekend
-            start = logic.snap_start(inst, start)
-            end = logic.snap_end(inst, start, end)
+        # snapped exactly as in the app (slots, whole evening/weekend, shortest)
+        start, end = logic.normalise_range(g.db, inst, start, end)
         try:
             made, problems = logic.book_range(g.db, iid, g.user["id"], start, end,
                                               f.get("purpose", ""))
@@ -277,6 +279,60 @@ def create_app(data_dir: Path | str) -> Flask:
         for p in problems:
             flash(f"Not booked: {p}.", "error")
         return redirect(url_for("instrument", iid=iid, date=start.date().isoformat()))
+
+    def _range_args():
+        try:
+            return (logic.parse(request.args.get("start", "")[:16]),
+                    logic.parse(request.args.get("end", "")[:16]))
+        except ValueError:
+            abort(400)
+
+    @app.route("/api/calendar")
+    @login_required
+    def calendar_data():
+        """Everything the web calendar draws, from the same code as the app:
+        bookable slots (with problem / out-of-order state), bookings, colours."""
+        inst = instrument_or_404(request.args.get("instrument", type=int))
+        start, end = _range_args()
+        admin = g.user["role"] == "admin"
+        show_names = db.setting(g.db, "show_names") == "1" or admin
+        now = logic.fmt(logic.now_local(g.db))
+        day_issues = logic.issues(g.db, inst["id"], start, end)
+        slots = []
+        for s0, s1, label in logic.slots(g.db, inst, start, end):
+            kinds = {i["kind"] for i in day_issues if logic.parse(i["start"]) < s1 and
+                     (i["end"] is None or logic.parse(i["end"]) > s0)}
+            slots.append({"start": logic.fmt(s0), "end": logic.fmt(s1), "label": label,
+                          "state": "down" if "down" in kinds else
+                          "problem" if "problem" in kinds else "free"})
+        bookings = []
+        for b in g.db.execute(
+                "SELECT b.*, u.full_name FROM bookings b JOIN users u ON u.id=b.user_id "
+                "WHERE b.instrument_id=? AND b.status IN ('pending','approved') "
+                "AND b.start < ? AND b.end > ? ORDER BY b.start",
+                (inst["id"], logic.fmt(end), logic.fmt(start))).fetchall():
+            mine = b["user_id"] == g.user["id"]
+            state = logic.issue_state(g.db, inst["id"], logic.parse(b["start"]),
+                                      logic.parse(b["end"]))
+            bookings.append({
+                "id": b["id"], "start": b["start"], "end": b["end"], "status": b["status"],
+                "who": "You" if mine else (b["full_name"] if show_names else "Booked"),
+                "purpose": b["purpose"] if (mine or admin) else "",
+                "cost": logic.cost(g.db, b) if (mine or admin) else None,
+                "mine": mine, "issue": state if state != "ok" else "",
+                "cancellable": (mine and b["start"] > now) or admin})
+        palette = {k: db.setting(g.db, f"colour_{k}")
+                   for k in ("free", "closed", "booked", "problem", "down")}
+        return jsonify({"slots": slots, "bookings": bookings, "palette": palette,
+                        "currency": db.setting(g.db, "currency"),
+                        "slot_minutes": inst["slot_minutes"]})
+
+    @app.route("/api/quote")
+    @login_required
+    def quote():
+        inst = instrument_or_404(request.args.get("instrument", type=int))
+        start, end = _range_args()
+        return jsonify(logic.quote(g.db, inst, g.user, start, end))
 
     @app.route("/api/events")
     @login_required
@@ -411,52 +467,25 @@ def create_app(data_dir: Path | str) -> Flask:
                                categories=db.categories(g.db),
                                rates={i["id"]: logic.rates(g.db, i["id"]) for i in insts})
 
-    @app.route("/admin/instruments/new", methods=["GET", "POST"])
-    @app.route("/admin/instruments/<int:iid>", methods=["GET", "POST"])
+    @app.route("/admin/instruments/<int:iid>")
     @admin_required
-    def admin_instrument(iid: int | None = None):
-        inst = instrument_or_404(iid) if iid else None
-        cats = db.categories(g.db)
-        users = g.db.execute("SELECT * FROM users WHERE status='active' ORDER BY full_name"
-                             ).fetchall()
-        if request.method == "POST":
-            f = request.form
-            try:
-                vals = _instrument_form(f)
-            except ValueError as exc:
-                flash(str(exc), "error")
-                return redirect(request.path)
-            if inst is None:
-                cur = g.db.execute(
-                    "INSERT INTO instruments (name, description, location, colour, active, "
-                    "approval, slot_minutes, min_minutes, max_minutes, max_days_ahead, open_time, "
-                    "close_time, weekends) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", vals)
-                iid = cur.lastrowid
-            else:
-                g.db.execute(
-                    "UPDATE instruments SET name=?, description=?, location=?, colour=?, active=?, "
-                    "approval=?, slot_minutes=?, min_minutes=?, max_minutes=?, max_days_ahead=?, "
-                    "open_time=?, close_time=?, weekends=? WHERE id=?", (*vals, iid))
-            for c in cats:
-                try:
-                    rate = float(f.get(f"rate_{c}", "0") or 0)
-                except ValueError:
-                    rate = 0.0
-                g.db.execute("INSERT INTO rates (instrument_id, category, rate) VALUES (?,?,?) "
-                             "ON CONFLICT(instrument_id, category) DO UPDATE SET rate=excluded.rate",
-                             (iid, c, max(0.0, rate)))
-            g.db.execute("DELETE FROM authorised WHERE instrument_id=?", (iid,))
-            for u in users:
-                if f.get(f"auth_{u['id']}"):
-                    g.db.execute("INSERT INTO authorised (user_id, instrument_id) VALUES (?,?)",
-                                 (u["id"], iid))
-            flash("Instrument saved.", "ok")
-            return redirect(url_for("admin_instruments"))
-        authorised = {r[0] for r in g.db.execute(
-            "SELECT user_id FROM authorised WHERE instrument_id=?", (iid or 0,))}
-        return render_template("admin_instrument.html", inst=inst, categories=cats,
-                               rates=logic.rates(g.db, iid) if iid else {}, users=users,
-                               authorised=authorised)
+    def admin_instrument(iid: int):
+        """Read-only: instruments are set up in the KherveLAB app, so the web
+        can never hold settings the app does not know (or the reverse)."""
+        inst = instrument_or_404(iid)
+        trained = g.db.execute("SELECT u.full_name FROM authorised a JOIN users u "
+                               "ON u.id=a.user_id WHERE a.instrument_id=? ORDER BY u.full_name",
+                               (iid,)).fetchall()
+        sessions = [{"name": r["name"], "start": r["start_time"], "end": r["end_time"],
+                     "days": logic.days_label(r["days"]),
+                     "prices": {c: logic.session_price(g.db, r["id"], c)
+                                for c in db.categories(g.db)}}
+                    for r in logic.sessions(g.db, iid)]
+        return render_template("admin_instrument.html", inst=inst,
+                               categories=db.categories(g.db), rates=logic.rates(g.db, iid),
+                               periods=logic.describe_periods(inst), sessions=sessions,
+                               trained=[t[0] for t in trained],
+                               approval=logic.APPROVAL_LABELS[inst["approval"]])
 
     @app.route("/admin/users")
     @admin_required
@@ -596,38 +625,3 @@ def create_app(data_dir: Path | str) -> Flask:
 
 def _all(conn, table: str, order: str = "name"):
     return conn.execute(f"SELECT * FROM {table} ORDER BY {order}").fetchall()
-
-
-def _instrument_form(f) -> tuple:
-    name = f.get("name", "").strip()
-    if not name:
-        raise ValueError("Give the instrument a name.")
-    approval = f.get("approval", "manual")
-    if approval not in logic.APPROVAL_LABELS:
-        approval = "manual"
-
-    def num(key, default, lo=1):
-        try:
-            return max(lo, int(f.get(key, default)))
-        except ValueError:
-            raise ValueError(f"{key.replace('_', ' ')} must be a whole number") from None
-    slot = num("slot_minutes", 30)
-    if slot > 1440:
-        raise ValueError("The slot can be at most 24 hours (1440 min).")
-    mn, mx = num("min_minutes", 30), num("max_minutes", 480)
-    if mn > mx:
-        raise ValueError("The shortest booking is longer than the longest.")
-    open_t = f.get("open_time", "08:00") or "08:00"
-    close_t = f.get("close_time", "20:00") or "20:00"
-    if f.get("all_day"):
-        open_t, close_t = "00:00", "24:00"
-    try:
-        if logic.minutes_of(open_t) >= logic.minutes_of(close_t):
-            raise ValueError("The closing time must be after the opening time.")
-    except (ValueError, IndexError) as exc:
-        raise ValueError(str(exc) if "closing" in str(exc) else "Times look like 08:00.") from None
-    colour = f.get("colour", "#1f6feb")
-    return (name, f.get("description", "").strip(), f.get("location", "").strip(),
-            colour if len(colour) == 7 and colour.startswith("#") else "#1f6feb",
-            1 if f.get("active") else 0, approval, slot, mn, mx, num("max_days_ahead", 60),
-            open_t, close_t, 1 if f.get("weekends") else 0)

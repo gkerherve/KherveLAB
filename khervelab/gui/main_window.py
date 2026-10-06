@@ -398,12 +398,8 @@ class MainWindow(QMainWindow):
             self.login(lambda win: win.create_booking(iid, start, end))
             return
         inst = self.conn.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
-        if inst is not None and inst["booking_mode"] == "free":
-            start = logic.snap_start(inst, start)
-            end = logic.snap_end(inst, start, end)
-            shortest = start + timedelta(minutes=inst["min_minutes"])
-            if end < shortest and logic.period_errors(inst, start, end):
-                end = logic.snap_end(inst, start, shortest)
+        if inst is not None:                    # the same snapping as on the web
+            start, end = logic.normalise_range(self.conn, inst, start, end)
         dlg = BookingDialog(self.conn, self.me, iid, start, end, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             n = len(dlg.result_ids)

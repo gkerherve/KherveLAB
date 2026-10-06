@@ -65,3 +65,56 @@ dl.facts dt { color:var(--muted); } dl.facts dd { margin:0; }
 footer { color:var(--muted); font-size:.8rem; text-align:center; padding:20px; }
 .fc .fc-bg-event.session { opacity:.14; }
 .fc .fc-bg-event.session .fc-event-title { color:var(--fg); font-size:.75rem; opacity:1; font-style:normal; }
+
+/* -- the instrument calendar: the same cards as the desktop app ------------------ */
+.kc { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; user-select:none; }
+.kc-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.kc-nav, .kc-views { display:flex; gap:4px; }
+.kc-title { font-weight:700; font-size:1.05rem; }
+.kc-btn { padding:5px 11px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:inherit; font-weight:600; cursor:pointer; }
+.kc-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.kc-btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.kc-btn.danger { color:var(--err); }
+.kc-btn:disabled { opacity:.45; cursor:not-allowed; }
+.kc-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; font-size:.82rem; color:var(--muted); margin:4px 0 8px; }
+.kc-chip { width:14px; height:11px; border:1px solid #6e7781; border-radius:2px; display:inline-block; }
+.kc-chip-label { margin-right:8px; }
+.kc-head, .kc-body { display:grid; }
+.kc-head { border-bottom:1px solid var(--line); }
+.kc-day-head { padding:4px 6px; font-size:.85rem; }
+.kc-day-head.today b { color:var(--err); }
+.kc-scroll { height:68vh; overflow-y:auto; position:relative; }
+.kc-gutter { position:relative; }
+.kc-hour { position:absolute; right:6px; font-size:.72rem; color:var(--muted); }
+.kc-hour::after { content:""; position:absolute; right:-6px; top:7px; width:5px; border-top:1px solid var(--line); }
+.kc-col { position:relative; border-left:1px solid rgba(110,119,129,.25); touch-action:pan-y; }
+.kc-card { position:absolute; left:5px; right:5px; border-radius:7px; padding:3px 7px; overflow:hidden;
+  font-size:.72rem; line-height:1.25; cursor:pointer;
+  background:linear-gradient(to bottom, color-mix(in srgb, var(--c) 86%, white), color-mix(in srgb, var(--c) 96%, black));
+  border:1px solid color-mix(in srgb, var(--c) 78%, black);
+  box-shadow:0 1px 2px rgba(15,30,60,.16), 0 3px 7px rgba(15,30,60,.08), inset 0 1px 0 rgba(255,255,255,.5); }
+.kc-free { color:#59636e; }
+.kc-problem { color:#1f2328; }
+.kc-down { color:#fff; cursor:not-allowed; }
+.kc-booked { color:#fff; z-index:2; }
+.kc-booked.kc-pending { background:color-mix(in srgb, var(--c) 40%, white); color:#1f2328; border-style:dashed; }
+.kc-booked.kc-mine { border-width:2px; }
+.kc-booked.kc-issue-down, .kc-booked.kc-issue-problem { border:3px solid var(--o); }
+.kc-card-title { font-weight:700; font-size:.76rem; }
+.kc-card-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kc-sel { outline:3px solid var(--accent); outline-offset:-1px; background:color-mix(in srgb, var(--accent) 22%, white) !important; color:#0b2e66; }
+.kc-now { position:absolute; left:0; right:0; border-top:2px solid var(--err); z-index:3; pointer-events:none; }
+.kc-toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#24292f; color:#fff;
+  padding:8px 14px; border-radius:8px; font-size:.88rem; opacity:0; transition:opacity .2s; pointer-events:none; z-index:20; }
+.kc-toast.show { opacity:.95; }
+.kc-modal-back { position:fixed; inset:0; background:rgba(15,20,30,.35); display:flex; align-items:center; justify-content:center; z-index:30; padding:16px; }
+.kc-modal { background:var(--card); color:var(--fg); border-radius:10px; padding:18px; width:min(460px, 100%); box-shadow:0 10px 30px rgba(0,0,0,.25); }
+.kc-modal h2 { margin-top:0; }
+.kc-modal textarea { width:100%; min-height:70px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; }
+.kc-items { display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
+.kc-item { display:flex; justify-content:space-between; gap:10px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
+.kc-item.bad { opacity:.6; }
+.kc-error { color:var(--err); font-size:.85rem; }
+.kc-ok { color:var(--ok); } .kc-warn { color:var(--warn); }
+.kc-total { font-weight:700; margin:6px 0; }
+.kc-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }

@@ -22,7 +22,7 @@ KherveLAB = "khervelab.server:main"
 include = ["khervelab*"]
 
 [tool.setuptools.package-data]
-khervelab = ["templates/*.html", "static/*", "static/vendor/*"]
+khervelab = ["templates/*.html", "static/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "khervelab.__version__" }

@@ -46,7 +46,13 @@ Stack:
   token, and each request opens its own SQLite connection.
 - `khervelab/server.py`: the entry point. It opens the GUI by default;
   `--serve` runs the web pages only.
-- `khervelab/templates/` and `khervelab/static/`: the web pages.
+- `khervelab/templates/` and `khervelab/static/`: the web pages. The
+  instrument calendar is `static/khervecal.js`. It draws `/api/calendar`
+  (built from `logic.slots`) and fills its booking window from
+  `/api/quote` (`logic.quote`). Never duplicate a booking rule in the
+  JavaScript: the web must follow the app's settings through `logic`.
+  Instruments are edited only in the app; the web instrument pages are
+  read-only.
 
 ## Rules
 
@@ -82,7 +88,9 @@ Stack:
   - block periods are taken whole;
   - shortest and longest apply to daytime-only bookings.
 
-  `snap_start` and `snap_end` drive drag snapping in the GUI and the web.
+  `snap_start` and `snap_end` drive drag snapping, and
+  `logic.normalise_range` applies them the same way in the GUI and on the
+  web.
 - Lengths are stored in minutes and shown with `logic.fmt_duration`. Slot
   and shortest are at most 24 h.
 - New columns go into `db.MIGRATIONS` so that existing `lab.db` files gain

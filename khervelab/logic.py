@@ -701,6 +701,54 @@ def book_range(conn, instrument_id: int, user_id: int, start: datetime, end: dat
     return made, problems
 
 
+def normalise_range(conn, inst, start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """Where a dragged range lands, the same in the app and on the web: free
+    time snaps to the slots of its periods (a one-booking period is taken
+    whole) and is stretched to the shortest daytime booking if needed.
+    Session instruments keep the range; book_range picks their sessions."""
+    if inst["booking_mode"] != "free":
+        return start, end
+    start = snap_start(inst, start)
+    end = snap_end(inst, start, end)
+    shortest = start + timedelta(minutes=inst["min_minutes"])
+    if end < shortest and period_errors(inst, start, end):
+        end = snap_end(inst, start, shortest)
+    return start, end
+
+
+def instant_for(conn, inst, user, actor=None) -> bool:
+    actor = actor or user
+    return (actor["role"] == "admin" or inst["approval"] == "auto" or
+            (inst["approval"] == "trained" and is_authorised(conn, user["id"], inst["id"])))
+
+
+def quote(conn, inst, user, start: datetime, end: datetime, actor=None) -> dict:
+    """What booking [start, end) would mean: the item(s) it makes, each one's
+    cost and rule problems, the total, and whether it is approved at once.
+    The web booking window shows exactly this; the app's dialog uses the
+    same rules."""
+    actor = actor or user
+    cur = db.setting(conn, "currency")
+    rate = rate_for(conn, inst["id"], user["category"])
+    items = []
+    if inst["booking_mode"] == "sessions":
+        for o in occurrences(conn, inst["id"], start, end):
+            price = session_price(conn, o.session_id, user["category"])
+            cost = price if price is not None else hours(conn, o.start, o.end) * rate
+            items.append({"start": fmt(o.start), "end": fmt(o.end), "label": o.name,
+                          "cost": round(cost, 2),
+                          "errors": check(conn, inst, actor, o.start, o.end)})
+    else:
+        s, e = normalise_range(conn, inst, start, end)
+        items.append({"start": fmt(s), "end": fmt(e), "label": "",
+                      "cost": round(hours(conn, s, e) * rate, 2),
+                      "errors": check(conn, inst, actor, s, e)})
+    ok = [i for i in items if not i["errors"]]
+    return {"items": items, "bookable": bool(ok), "currency": cur,
+            "total": round(sum(i["cost"] for i in ok), 2),
+            "instant": instant_for(conn, inst, user, actor)}
+
+
 def decide(conn, booking_id: int, admin_id: int, approve: bool, note: str = "") -> None:
     b = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
     if b is None or b["status"] != "pending":

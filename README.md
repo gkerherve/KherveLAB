@@ -234,6 +234,27 @@ Billing rules:
   else by the time actually elapsed.
 - Statements name each session.
 
+## The web pages follow the app exactly
+
+When the web pages are shared (Manage ▸ Booking from other computers), each
+instrument's page draws **the same calendar as the app**:
+
+- **Same look:** the same raised cards, colours and closed background,
+  with Week and Day views (Day on a phone).
+- **Same slots:** the slots come from the app's own rules, through
+  `/api/calendar`.
+- **Same gestures:** drag across the slots you want, or press and hold
+  one until it lights up. A plain click does nothing.
+- **Same checks:** the booking window is filled from the same rules as the
+  app's booking window (`/api/quote`). It shows the slots or sessions, the
+  price, whether approval is needed, and any rule a choice breaks
+  (including out of order), so the web can only book what the instrument
+  settings allow.
+- **Same snapping:** a booking lands exactly where the app would put it.
+
+Instruments are set up only in the app. The web shows each instrument's
+settings read-only, so the app and the web can never drift apart.
+
 ## Without a screen
 
 On a computer with no display, `python KherveLAB.py --serve [--port 8080]`
@@ -248,5 +269,4 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 
 ## Licence
 
-GPL v3 or later. © 2026 Gwilherm Kerherve. FullCalendar (MIT), used by the
-optional web pages, is vendored in `khervelab/static/vendor/`.
+GPL v3 or later. © 2026 Gwilherm Kerherve.

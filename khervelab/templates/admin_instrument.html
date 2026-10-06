@@ -1,54 +1,35 @@
 {% extends "base.html" %}
-{% block title %}{{ inst.name if inst else 'New instrument' }}{% endblock %}
+{% block title %}{{ inst.name }}{% endblock %}
 {% block content %}
-<h1>{{ inst.name if inst else 'New instrument' }}</h1>
-<form method="post">
-<input type="hidden" name="csrf" value="{{ csrf_token }}">
+<h1><span style="color:{{ inst.colour }}">■</span> {{ inst.name }} {% if not inst.active %}<span class="muted small">(not available for booking)</span>{% endif %}</h1>
+<p class="muted">To change this instrument, use the KherveLAB app on the lab computer: Manage ▸ Instruments. These pages follow the app's settings exactly.</p>
 <div class="card">
-  <div class="row">
-    <div><label>Name</label><input type="text" name="name" required value="{{ inst.name if inst else '' }}"></div>
-    <div><label>Location</label><input type="text" name="location" value="{{ inst.location if inst else '' }}"></div>
-    <div><label>Colour</label><input type="color" name="colour" value="{{ inst.colour if inst else '#1f6feb' }}"></div>
-  </div>
-  <label>Description</label><textarea name="description">{{ inst.description if inst else '' }}</textarea>
-  <label class="check"><input type="checkbox" name="active" {% if not inst or inst.active %}checked{% endif %}> Available for booking</label>
+  <dl class="facts">
+    {% if inst.description %}<dt>Description</dt><dd>{{ inst.description }}</dd>{% endif %}
+    {% if inst.location %}<dt>Location</dt><dd>{{ inst.location }}</dd>{% endif %}
+    <dt>Approval</dt><dd>{{ approval }}</dd>
+    {% if inst.booking_mode == 'sessions' %}
+      <dt>Booked by</dt><dd>fixed sessions</dd>
+    {% else %}
+      <dt>When</dt><dd>{{ periods }}</dd>
+      <dt>Daytime</dt><dd>bookings of {{ inst.min_minutes }}–{{ inst.max_minutes }} min</dd>
+    {% endif %}
+    <dt>Book ahead</dt><dd>up to {{ inst.max_days_ahead }} days</dd>
+  </dl>
 </div>
-<div class="card">
-  <h2 style="margin-top:0">Approval</h2>
-  {% for key, label in approval_labels.items() %}
-    <label class="check"><input type="radio" name="approval" value="{{ key }}" {% if (inst.approval if inst else 'manual') == key %}checked{% endif %}> {{ label }}</label>
-  {% endfor %}
-</div>
-<div class="card">
-  <h2 style="margin-top:0">Hourly rates</h2>
-  <p class="small muted">Each user has a rate category (Settings lists them). A booking keeps the rate in force when it was made.</p>
-  <div class="row">
-  {% for c in categories %}<div><label>{{ c }} ({{ currency }}/h)</label><input type="number" name="rate_{{ c }}" min="0" step="0.01" value="{{ '%.2f' % rates.get(c, 0) }}"></div>{% endfor %}
-  </div>
-</div>
-<div class="card">
-  <h2 style="margin-top:0">Booking rules</h2>
-  <p class="small muted">Rules apply to users; the lab manager can book anything that does not clash.</p>
-  <div class="row">
-    <div><label>Slot (min, up to 1440)</label><input type="number" name="slot_minutes" min="1" max="1440" value="{{ inst.slot_minutes if inst else 30 }}"></div>
-    <div><label>Shortest booking (min)</label><input type="number" name="min_minutes" min="1" value="{{ inst.min_minutes if inst else 30 }}"></div>
-    <div><label>Longest booking (min)</label><input type="number" name="max_minutes" min="1" value="{{ inst.max_minutes if inst else 480 }}"></div>
-    <div><label>Days ahead</label><input type="number" name="max_days_ahead" min="1" value="{{ inst.max_days_ahead if inst else 60 }}"></div>
-  </div>
-  <div class="row">
-    <div><label>Opens</label><input type="time" name="open_time" value="{{ inst.open_time if inst else '08:00' }}"></div>
-    <div><label>Closes</label><input type="time" name="close_time" value="{{ (inst.close_time if inst and inst.close_time != '24:00' else '20:00') }}"></div>
-  </div>
-  <label class="check"><input type="checkbox" name="all_day" {% if inst and inst.open_time == '00:00' and inst.close_time == '24:00' %}checked{% endif %}> Bookable around the clock (overnight runs allowed)</label>
-  <label class="check"><input type="checkbox" name="weekends" {% if inst and inst.weekends %}checked{% endif %}> Bookable at weekends</label>
-</div>
-<div class="card">
-  <h2 style="margin-top:0">Trained users</h2>
-  <p class="small muted">With "automatic for trained users", these people book at once; everyone else needs your approval.</p>
-  <div class="grid" style="gap:2px 14px">
-  {% for u in users %}<label class="check"><input type="checkbox" name="auth_{{ u.id }}" {% if u.id in authorised %}checked{% endif %}> {{ u.full_name }} <span class="muted small">{{ u.group_name }}</span></label>{% else %}<p class="muted">No active users yet.</p>{% endfor %}
-  </div>
-</div>
-<div class="actions"><button class="primary">Save instrument</button> <a href="{{ url_for('admin_instruments') }}">Cancel</a></div>
-</form>
+<h2>Hourly rates</h2>
+<div class="table-wrap"><table>
+<tr>{% for c in categories %}<th class="num">{{ c }}</th>{% endfor %}</tr>
+<tr>{% for c in categories %}<td class="num">{{ rates[c] | money }}/h</td>{% endfor %}</tr>
+</table></div>
+{% if sessions %}
+<h2>Sessions</h2>
+<div class="table-wrap"><table>
+<tr><th>Session</th><th>Time</th><th>Days</th>{% for c in categories %}<th class="num">{{ c }}</th>{% endfor %}</tr>
+{% for s in sessions %}<tr><td>{{ s.name }}</td><td>{{ s.start }}–{{ s.end }}</td><td>{{ s.days }}</td>
+{% for c in categories %}<td class="num">{% if s.prices[c] is not none %}{{ s.prices[c] | money }}{% else %}<span class="muted">hourly</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+</table></div>
+{% endif %}
+<h2>Trained users</h2>
+<p>{{ trained | join(', ') if trained else 'None yet.' }}</p>
 {% endblock %}

@@ -2,7 +2,7 @@
 {% block title %}Instruments and rates{% endblock %}
 {% block content %}
 <h1>Instruments and rates</h1>
-<div class="actions" style="margin-top:0;margin-bottom:14px"><a class="btn primary" href="{{ url_for('admin_instrument') }}">Add an instrument</a></div>
+<p class="muted">Instruments, their hours, slots, sessions and rates are set up in the KherveLAB app on the lab computer (Manage ▸ Instruments), so the app and these pages always follow the same settings.</p>
 <div class="table-wrap"><table>
 <tr><th>Instrument</th><th>Approval</th>{% for c in categories %}<th class="num">{{ c }} ({{ currency }}/h)</th>{% endfor %}<th>Available</th></tr>
 {% for i in instruments %}
