@@ -714,7 +714,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self.show_names)
         self.colour_buttons = {}
         colours = QHBoxLayout()
-        for key, label in (("free", "Free slot"), ("booked", "Booked"),
+        for key, label in (("free", "Free slot"), ("closed", "Closed"), ("booked", "Booked"),
                            ("problem", "Problem"), ("down", "Out of order")):
             b = QPushButton(label)
             self._paint_button(b, s(f"colour_{key}"))

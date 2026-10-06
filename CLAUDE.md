@@ -102,8 +102,10 @@ Stack:
 - `issues` rows (`problem` or `down`, `end` NULL = until fixed) colour the
   calendar. A `down` issue blocks non-manager bookings in `logic.check`.
   `logic.slots` lists every bookable slot, and `CalendarView._draw_slots`
-  draws them as boxes: grey (free), yellow (problem), red (down), with
-  closed time hatched. Bookings use the `colour_booked` setting; the
+  draws them as boxes: very light grey (free), yellow (problem), red
+  (down). Closed time is very dark grey with lighter dashes. Changed
+  defaults go into `db.REPLACED_DEFAULTS`, so that labs still on the old
+  default follow the new one. Bookings use the `colour_booked` setting; the
   colours are the `colour_*` settings.
 - A booking is never created by a plain click. In `CalendarView`, creation
   needs a drag past `QApplication.startDragDistance()` or a press held for

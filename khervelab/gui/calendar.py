@@ -216,7 +216,8 @@ class CalendarView(QGraphicsView):
         sc.clear()
         if self.conn is not None:
             self.palette_cfg = {k: db.setting(self.conn, f"colour_{v}") for k, v in
-                                (("free", "free"), ("booked", "booked"),
+                                (("free", "free"), ("closed", "closed"),
+                                 ("booked", "booked"),
                                  ("problem", "problem"), ("down", "down"))}
         self._ghost = None
         self.setBackgroundBrush(QColor(self.colours.background))
@@ -272,9 +273,13 @@ class CalendarView(QGraphicsView):
         Bookings are drawn on top. Outside the slots is closed."""
         sc, c, pal = self.scene(), self.colours, self.palette_cfg
         none = QPen(Qt.PenStyle.NoPen)
-        # closed time is hatched, so it never looks like a free (grey) slot
-        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none,
-                   QBrush(QColor(c.grid_hour), Qt.BrushStyle.BDiagPattern)).setZValue(-2.5)
+        # closed: very dark grey with lighter dashes over it, so it can never be
+        # mistaken for a free (very light grey) slot
+        closed = QColor(pal.get("closed", "#3d4249"))
+        whole = QRectF(x, HEADER, self.colw, DAY_H)
+        sc.addRect(whole, none, closed).setZValue(-2.6)
+        sc.addRect(whole, none, QBrush(closed.lighter(165), Qt.BrushStyle.BDiagPattern)
+                   ).setZValue(-2.5)
         d0, d1 = self._at(day, 0), self._at(day, 1440)
         small = QFont()
         small.setPointSizeF(7.5)

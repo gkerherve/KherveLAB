@@ -81,14 +81,15 @@ instruments day view, every bookable slot is drawn as a box (e.g. 08:00–12:30
 and 12:30–17:00 for 4.5 h slots from 08:00, or the whole evening or weekend
 when that is one booking). Each box is:
 
-- **grey** when free;
+- **very light grey** when free;
 - **blue** when booked (pale and dashed while waiting for approval);
 - **yellow** when a problem has been reported for that time;
 - **red** when the instrument is out of order.
 
-Closed time is hatched. The colours are set in **Lab settings ▸ Calendar
-colours**, and each instrument's info line shows a legend and its current
-status.
+Closed time is **very dark grey with lighter dashes over it**, so it is never
+mistaken for a free slot. All five colours (free, closed, booked, problem and
+out of order) are set in **Lab settings ▸ Calendar colours**. Each instrument
+tab shows a legend under its info line, and its current status.
 
 Reporting and resolving:
 

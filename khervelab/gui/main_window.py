@@ -40,11 +40,32 @@ class ScheduleTab(QWidget):
         self.info.setWordWrap(True)
         self.info.setContentsMargins(8, 4, 8, 2)
         self.view = CalendarView()
+        self.legend = QWidget()
+        self.legend_row = QHBoxLayout(self.legend)
+        self.legend_row.setContentsMargins(8, 0, 8, 4)
+        self.legend_row.setSpacing(4)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         lay.addWidget(self.info)
+        lay.addWidget(self.legend)
         lay.addWidget(self.view)
+
+    def set_legend(self, colours: list[tuple[str, str]]) -> None:
+        """Built once, then only recoloured: replacing widgets on every refresh
+        left the old ones painted until Qt deleted them."""
+        if not hasattr(self, "_chips"):
+            self._chips = []
+            for _, label in colours:
+                chip = QLabel()
+                chip.setFixedSize(14, 12)
+                self.legend_row.addWidget(chip)
+                self.legend_row.addWidget(QLabel(label + "   "))
+                self._chips.append(chip)
+            self.legend_row.addStretch(1)
+        for chip, (colour, _) in zip(self._chips, colours):
+            # framed, so a very light colour still shows against the window
+            chip.setStyleSheet(f"background:{colour}; border:1px solid #6e7781;")
 
 
 # nobody logged in: the schedule stays on screen for anyone to look at
@@ -280,20 +301,15 @@ class MainWindow(QMainWindow):
             tab.info.setText(self._info(inst))
             tab.view.set_state(self.conn, self.me, [inst], True, self.anchor, self.mode,
                                self.colours)
+        tab.set_legend([(db.setting(self.conn, f"colour_{k}"), label) for k, label in
+                        (("free", "free"), ("closed", "closed"), ("booked", "booked"),
+                         ("problem", "problem"), ("down", "out of order"))])
         first, last = tab.view.visible_range()
         self.range_label.setText(f"{first:%A %d %B %Y}" if self.mode == DAY else
                                  f"{first:%d %b} – {last:%d %b %Y}" if self.mode == WEEK else
                                  f"{first:%B %Y}")
         if self.requests is not None:
             self.requests.refresh()
-
-    def _legend(self) -> str:
-        def chip(key, label):
-            colour = db.setting(self.conn, f"colour_{key}")
-            return (f"<span style='background:{colour};color:{colour}'>&nbsp;&nbsp;&nbsp;</span>"
-                    f"&nbsp;{label}")
-        return "&nbsp;&nbsp;".join((chip("free", "free"), chip("booked", "booked"),
-                                    chip("problem", "problem"), chip("down", "out of order")))
 
     def _status(self, inst) -> str:
         i = logic.current_issue(self.conn, inst["id"])
@@ -307,7 +323,7 @@ class MainWindow(QMainWindow):
                 + (f": {html.escape(i['note'])}" if i["note"] else "") + "</span><br>")
 
     def _info(self, inst) -> str:
-        return self._status(inst) + self._info_text(inst) + "<br>" + self._legend()
+        return self._status(inst) + self._info_text(inst)
 
     def _info_text(self, inst) -> str:
         cur = db.setting(self.conn, "currency")

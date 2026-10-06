@@ -140,7 +140,8 @@ DEFAULT_SETTINGS = {
     "account_approval": "1",   # new accounts wait for the administrator
     "show_names": "1",         # logged-in users see who booked a slot
     # calendar colours for slots
-    "colour_free": "#d8dde3",
+    "colour_free": "#eef1f4",     # very light grey
+    "colour_closed": "#3d4249",   # very dark grey, hatched with lighter dashes
     "colour_booked": "#1f6feb",
     "colour_problem": "#e3b341",
     "colour_down": "#cf222e",
@@ -186,6 +187,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
                      "weekend_end=close_time WHERE weekends=1")
 
 
+# defaults later changed: a lab still on the old default gets the new one
+REPLACED_DEFAULTS = [("colour_free", "#d8dde3")]
+
+
 def init(conn: sqlite3.Connection) -> None:
     # tables first (CREATE IF NOT EXISTS leaves old ones alone), then new columns
     conn.executescript(SCHEMA.split("CREATE INDEX")[0])
@@ -193,6 +198,9 @@ def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+    for key, old_default in REPLACED_DEFAULTS:
+        conn.execute("UPDATE settings SET value=? WHERE key=? AND value=?",
+                     (DEFAULT_SETTINGS[key], key, old_default))
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('secret_key', ?)",
                  (secrets.token_hex(32),))
 
