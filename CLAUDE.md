@@ -165,6 +165,35 @@ Stack:
   Merge into `main` only when asked.
 - `khervelab/__init__.py` holds `__version__ = "<major>.<minor>"`. Bump the
   minor version in the same commit as any change the user can see.
+- The version the app reports (title bar, About, `--serve`, MCP) and the
+  release version is `RELEASE` = `<major>.<minor>.<commits>`, the third
+  number being `git rev-list --count HEAD` (`khervelab/_version.py`). A
+  frozen build reads it from `khervelab/VERSION`, which the packaging writes
+  (git-ignored). Never edit a build number by hand.
 - Run `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q` before
   committing. Logic and report
   changes come with tests.
+
+## Releases
+
+Built by GitHub Actions from one tagged commit on `dev`; the workflows only
+build and upload artifacts, they never create a release.
+
+- `git tag v<ver> && git push origin v<ver>` runs `windows-build.yml`:
+  tests, `packaging/build_installer.py` (PyInstaller `KherveLAB.spec` +
+  Inno `packaging/KherveLAB.iss`, per-user), then `packaging/smoke_test.py`
+  on the frozen exe and on a silent install. Produces
+  `KherveLAB-Setup-<ver>.exe`, `KherveLAB-<ver>-portable.zip` and the
+  stable `KherveLAB-Setup.exe` that the website links to.
+- `git tag macos-v<ver> && git push origin macos-v<ver>` runs
+  `macos-build.yml` on macos-14 (arm64) and macos-15-intel (x86_64):
+  `packaging/build_macos.py` (`KherveLABMAC.spec`, ad hoc signing,
+  create-dmg) gives `KherveLAB-<ver>-macOS-<arch>.dmg`, the stable
+  `KherveLAB-macOS-<arch>.dmg` and `.sha256` files.
+- `<ver>` is what the app reports, `<major>.<minor>.<commits>`; both tags
+  go on the same commit. `packaging/spec_common.py` is shared by both
+  specs: PyQt6 only (PySide6 and other bindings are excluded), templates
+  and static files bundled. The icons are rendered from
+  `khervelab/gui/icon.py` by `packaging/make_icons.py`.
+- The smoke test drives the frozen app through `--serve` (/setup on a
+  made-up lab, the exports), `--mcp-server` and the GUI offscreen.

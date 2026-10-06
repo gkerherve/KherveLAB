@@ -24,7 +24,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from . import __version__, db, mcp_tools
+from . import RELEASE as __version__, db, mcp_tools
 
 SERVER_NAME = "khervelab"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")

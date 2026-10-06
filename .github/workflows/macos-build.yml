@@ -1,0 +1,117 @@
+name: macOS build
+
+# PyInstaller cannot cross-compile, so the .app has to be produced on a Mac.
+# Both architectures are built: macos-14 is Apple Silicon (arm64),
+# macos-15-intel the x86_64 image, so Intel users get a native DMG rather
+# than running Rosetta.
+#
+# Not macos-13: that image was retired in December 2025 and the label no
+# longer resolves, so a job asking for it queues for ever rather than
+# failing. macos-15-intel is GitHub's last x86_64 image and goes away in
+# August 2027, after which this matrix is arm64 only.
+#
+# This workflow only BUILDS. It uploads the DMGs as workflow artifacts and
+# never creates a release: publishing is a deliberate step done by hand from
+# those artifacts (`gh release create macos-v<ver> --latest=false ...`).
+#
+# Development happens on `dev`, not on the default branch, and GitHub only
+# lists workflow_dispatch workflows that exist on the default branch — so
+# the trigger is a tag push, which runs the workflow file of the tagged
+# commit wherever it lives:
+#
+#   git tag macos-v0.28.N && git push origin macos-v0.28.N
+
+on:
+  push:
+    tags:
+      - "macos-v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false     # an Intel failure should not hide a good arm64 build
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45    # a hung test must not hold a runner for 6 hours
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version is `git rev-list --count HEAD`, so a shallow
+          # clone would silently ship the wrong build number.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pip install pytest pytest-qt
+          python -c "import PyQt6.QtCore as q; print('PyQt6', q.PYQT_VERSION_STR)"
+
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -q
+
+      - name: Build the .app and the DMG
+        run: python packaging/build_macos.py
+
+      - name: Read the version back
+        # Read from the file the build stamped, not from git again, so the
+        # artifact name cannot disagree with the app's own About box.
+        run: echo "VERSION=$(cut -d+ -f1 khervelab/VERSION)" >> "$GITHUB_ENV"
+
+      - name: Check the bundle
+        # What can actually be wrong in a finished bundle: no Info.plist, a
+        # broken signature, the .0 placeholder version, the web templates
+        # left out, a stray second Qt binding, or
+        # a binary built for the other architecture, which users meet as
+        # "the app is damaged".
+        run: |
+          set -euo pipefail
+          APP=dist/KherveLAB.app
+          test -x "$APP/Contents/MacOS/KherveLAB"
+          plutil -p "$APP/Contents/Info.plist" \
+            | grep -E 'CFBundleIdentifier|CFBundleShortVersionString'
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[1-9][0-9]*$'
+          codesign --verify --deep --strict "$APP"
+          file -b "$APP/Contents/MacOS/KherveLAB" | grep -q '${{ matrix.arch }}'
+          find "$APP" -path '*khervelab/templates/base.html' | grep -q .
+          find "$APP" -path '*khervelab/static/khervecal.js' | grep -q .
+          ! find "$APP" -maxdepth 6 -iname 'PySide6*' | grep -q .
+
+      - name: Smoke-test the frozen app
+        # Start the real executable every way it starts: --serve (headless
+        # web pages) with /setup and the exports, --mcp-server, and the GUI
+        # offscreen. A missing hidden import only shows up when the code
+        # that needs it runs.
+        run: |
+          python packaging/smoke_test.py \
+            dist/KherveLAB.app/Contents/MacOS/KherveLAB --version "$VERSION"
+
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: KherveLAB-${{ env.VERSION }}-macOS-${{ matrix.arch }}
+          # '*' also matches nothing, so each pattern covers the versioned
+          # name and the stable one (KherveLAB-macOS-<arch>.dmg).
+          path: |
+            dist/KherveLAB-*macOS-${{ matrix.arch }}.dmg
+            dist/KherveLAB-*macOS-${{ matrix.arch }}.dmg.sha256
+            dist/KherveLAB-macOS-${{ matrix.arch }}.json
+          if-no-files-found: error

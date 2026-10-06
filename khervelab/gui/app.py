@@ -27,6 +27,8 @@ def run(data_dir: Path) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setOrganizationName("Kherve")
+    from .icon import app_icon
+    app.setWindowIcon(app_icon())
     settings = QSettings("Kherve", __app_name__)
     theme.apply(app, settings.value("dark", False, type=bool))
     data_dir.mkdir(parents=True, exist_ok=True)

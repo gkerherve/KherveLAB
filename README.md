@@ -17,7 +17,16 @@ optional: the app is the main way in.
 It is part of the Kherve Tools suite. An earlier, department-wide design is
 kept under the git tag `v0.7-department`.
 
-## Start it
+## Install
+
+Download the installer from the
+[releases](https://github.com/gkerherve/KherveLAB/releases): Windows
+`KherveLAB-Setup.exe` (per-user, no admin rights), macOS
+`KherveLAB-macOS-arm64.dmg` (Apple Silicon) or `KherveLAB-macOS-x86_64.dmg`
+(Intel). The Mac app is not notarised: the first time, right-click it in
+Applications and choose Open. Your lab's data stays in `~/KherveLAB-data`.
+
+## Start it from the source
 
 ```bash
 python3 -m venv .venv

@@ -16,7 +16,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import __version__
+from . import RELEASE as __version__
 from .web import create_app
 
 DEFAULT_DATA = Path.home() / "KherveLAB-data"

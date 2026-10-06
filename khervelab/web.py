@@ -22,7 +22,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, r
                    send_file, session, url_for)
 from markupsafe import Markup
 
-from . import __version__, analytics, charts, db, logic, reports
+from . import RELEASE as __version__, analytics, charts, db, logic, reports
 
 
 

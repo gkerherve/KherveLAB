@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QHBoxLayout, QL
                              QMainWindow, QMessageBox, QPushButton, QTabWidget, QToolBar,
                              QVBoxLayout, QWidget)
 
-from .. import __app_name__, __version__, db, logic
+from .. import RELEASE as __version__, __app_name__, db, logic
 from . import theme
 from .admin import (InstrumentsDialog, IssuesDialog, NetworkServer, ServerDialog,
                     SettingsDialog, UsersDialog, swatch)

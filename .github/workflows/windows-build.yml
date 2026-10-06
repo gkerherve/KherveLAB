@@ -1,0 +1,130 @@
+name: Windows build
+
+# The same one-shot script used on a Windows desktop
+# (packaging/build_installer.py): stamp VERSION, freeze with PyInstaller,
+# zip, compile the Inno Setup installer. Lets a release be cut from a Mac:
+# run this and macos-build.yml on the same commit so both platforms carry
+# the same <major>.<minor>.<n>.
+#
+# This workflow only BUILDS. It uploads the installer, the portable zip and
+# the stable-name copy as a workflow artifact and never creates a release:
+# the v<ver> release becomes `releases/latest`, which the website's download
+# button points at, so it is created by hand after the build is checked.
+#
+# Development happens on `dev`, not on the default branch, and GitHub only
+# lists workflow_dispatch workflows that exist on the default branch — so
+# the trigger is a tag push, which runs the workflow file of the tagged
+# commit wherever it lives. The tag is also the release tag later:
+#
+#   git tag v0.28.N && git push origin v0.28.N
+#
+# (`v*` does not match `macos-v*`: tag patterns are anchored at the start.)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45    # a hung test must not hold a runner for 6 hours
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version is `git rev-list --count HEAD`, so a shallow
+          # clone would silently ship the wrong build number.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pip install pytest pytest-qt
+          python -c "import PyQt6.QtCore as q; print('PyQt6', q.PYQT_VERSION_STR)"
+
+      - name: Install Inno Setup
+        # Not guaranteed on the runner image; choco is. build_installer.py
+        # finds it under Program Files (x86).
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -q
+
+      - name: Build the installer and portable zip
+        run: python packaging/build_installer.py
+
+      - name: Read the version back
+        shell: bash
+        run: |
+          VERSION=$(cut -d+ -f1 khervelab/VERSION | tr -d '\r\n')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Check the build
+        # No launch from the installer (it would need a desktop). Checks
+        # what a freeze breaks: the placeholder version, a missing exe,
+        # the web templates and static files, a stray second Qt binding.
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[1-9][0-9]*$'
+          test -f dist/KherveLAB/KherveLAB.exe
+          find dist/KherveLAB -path '*khervelab/templates/base.html' | grep -q .
+          find dist/KherveLAB -path '*khervelab/static/khervecal.js' | grep -q .
+          ! find dist/KherveLAB -maxdepth 3 -iname 'PySide6*' | grep -q .
+          ls -lh dist/KherveLAB-Setup-$VERSION.exe dist/KherveLAB-$VERSION-portable.zip \
+                 dist/KherveLAB-Setup.exe
+
+      - name: Smoke-test the frozen app
+        # Start the real exe every way it starts: --serve (headless web
+        # pages) with /setup and the exports, --mcp-server, and the GUI
+        # offscreen. A missing hidden import only shows up when the code
+        # that needs it runs.
+        shell: bash
+        run: python packaging/smoke_test.py dist/KherveLAB/KherveLAB.exe --version "$VERSION"
+
+      - name: Install silently, smoke-test the installed app, uninstall
+        # The only place the installer itself is ever run: compiling it proves
+        # the script parses, not that it installs. Per-user, so no elevation
+        # is needed on the runner. Checks the files land, the INSTALLED exe
+        # works (same smoke test: --serve, MCP, exports, the GUI),
+        # and the uninstaller removes it again.
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "KherveLAB-installed"
+          $log = Join-Path $env:RUNNER_TEMP "install.log"
+          $p = Start-Process -FilePath "dist\KherveLAB-Setup-$env:VERSION.exe" `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir","/LOG=$log" `
+            -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "installer exited $($p.ExitCode)" }
+          if (-not (Test-Path "$dir\KherveLAB.exe")) { Get-Content $log -Tail 40; throw "KherveLAB.exe was not installed" }
+          python packaging/smoke_test.py "$dir\KherveLAB.exe" --version $env:VERSION
+          if ($LASTEXITCODE -ne 0) { throw "smoke test of the installed app failed" }
+          Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          # Inno's uninstaller re-launches itself from %TEMP% and returns at once.
+          for ($i = 0; $i -lt 60 -and (Test-Path "$dir\KherveLAB.exe"); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path "$dir\KherveLAB.exe") { throw "the uninstaller did not remove the app" }
+          Write-Host "install / run / uninstall OK"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KherveLAB-${{ env.VERSION }}-windows
+          path: |
+            dist/KherveLAB-Setup-*.exe
+            dist/KherveLAB-Setup.exe
+            dist/KherveLAB-*-portable.zip
+          if-no-files-found: error
