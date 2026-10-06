@@ -329,6 +329,49 @@ instrument's page draws **the same calendar as the app**:
 Instruments are set up only in the app. The web shows each instrument's
 settings read-only, so the app and the web can never drift apart.
 
+## Let Claude run the lab (MCP)
+
+KherveLAB has an MCP server, so Claude Desktop or Claude Code can act as a
+lab manager. For example, you can paste screenshots of PPMS pages (user
+lists, price tables, booking histories) and ask Claude to enter what they
+show.
+
+To set it up, open **Manage ▸ Connect to Claude…**, choose which manager
+Claude acts as, and then either:
+
+- click **Add to Claude Desktop**, then restart Claude Desktop; or
+- copy the **Claude Code** command and run it once in a terminal.
+
+Claude then has tools to:
+
+- **Look:** the lab overview, instruments, users, bookings, pending
+  requests, problems, a booking quote, and the finance and usage report.
+- **Set up:** add and change instruments (retire one with `active=0`), set
+  rates, add and change users, mark training, and change lab settings.
+- **Run the lab:** book for someone, approve or reject requests, cancel
+  bookings, and report and resolve problems.
+- **Move from PPMS:**
+  - `record_past_bookings` takes bookings read from a screen, with the
+    amount charged;
+  - `preview_ppms_import` and `import_ppms` handle export files.
+
+Its limits:
+
+- **Same rules as the app:** there are no tools that delete anything.
+- **Users without a password:** they choose one at their first log-in.
+- **Changes are logged:** every change is appended to `mcp-log.jsonl` in
+  the data folder.
+- **Approval:** Claude asks you before each change unless you allow a tool
+  permanently.
+
+It needs no extra packages and no running app: it works on `lab.db`
+directly, and an open app shows the changes within 30 seconds. To start it
+by hand:
+
+```bash
+.venv/bin/python -m khervelab.mcp_server --data ~/KherveLAB-data --as manager
+```
+
 ## Without a screen
 
 On a computer with no display, `python KherveLAB.py --serve [--port 8080]`

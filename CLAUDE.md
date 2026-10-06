@@ -48,6 +48,19 @@ Stack:
   and `note` = `ppms.NOTE`. Imported users have an empty `password_hash`
   until `logic.claim_account` (username + email on record). Never commit a
   real PPMS export or anything taken from one: tests use made-up files.
+- `khervelab/mcp_server.py` (stdio JSON-RPC, no Qt, no extra packages) and
+  `khervelab/mcp_tools.py`: Claude acts as a chosen lab manager (`--as`)
+  directly on `lab.db`, with no bridge into the GUI.
+  - Tools go through `logic`, `ppms` and `analytics`.
+  - Each changing tool runs in one explicit transaction; `OWN_TRANSACTION`
+    tools open their own.
+  - Changes are logged to `mcp-log.jsonl`.
+  - Keep it free of delete tools.
+
+  `khervelab/mcp_hosts.py` merges the entry into Claude Desktop's config
+  (backup, atomic write, refuse unparsable files), and
+  `gui/claude.py` is Manage ▸ Connect to Claude. A frozen build runs it
+  with `KherveLAB --mcp-server`.
 - `khervelab/gui/`: the desktop app.
   - `app.py`: startup, setup and login.
   - `main_window.py`: the schedule tabs.

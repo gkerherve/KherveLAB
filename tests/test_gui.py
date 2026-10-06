@@ -628,3 +628,11 @@ def test_ppms_import_dialog(qtbot, lab, tmp_path):
     assert "2  bookings imported" in dlg.result.toPlainText()
     n = lab["conn"].execute("SELECT COUNT(*) FROM instruments WHERE name='Raman'").fetchone()[0]
     assert n == 1
+
+
+def test_connect_to_claude_dialog(qtbot, lab):
+    from khervelab.gui.claude import ClaudeDialog
+    dlg = ClaudeDialog(lab["conn"], lab["boss"], lab["dir"])
+    qtbot.addWidget(dlg)
+    assert dlg.who.currentData() == "manager"
+    assert '"khervelab"' in dlg.json.toPlainText() and "--as" in dlg.cli.toPlainText()

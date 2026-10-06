@@ -35,6 +35,12 @@ def lan_address() -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
+    import sys
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--mcp-server" in argv:                    # how Claude launches a frozen build
+        from . import mcp_server
+        argv.remove("--mcp-server")
+        return mcp_server.main(argv)
     p = argparse.ArgumentParser(description="KherveLAB: instrument booking for one lab")
     p.add_argument("--data", type=Path, default=DEFAULT_DATA,
                    help=f"folder holding lab.db (default {DEFAULT_DATA})")

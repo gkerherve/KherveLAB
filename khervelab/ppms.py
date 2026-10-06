@@ -457,11 +457,6 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
         s.add("users created" + made_by)
         return cur.lastrowid
 
-    def rate_for(iid, uid):
-        r = conn.execute("SELECT r.rate FROM rates r JOIN users u ON u.category=r.category "
-                         "WHERE r.instrument_id=? AND u.id=?", (iid, uid)).fetchone()
-        return r[0] if r else 0.0
-
     for src in sources:
         for n, row in enumerate(src.table.rows, start=1):     # as numbered in the preview
             where = f"{Path(src.table.path).name} row {n}"
@@ -505,7 +500,7 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
                              "VALUES (?, ?)", (user(login), instrument(name)))
                 s.add("trained users set")
             elif src.kind == "bookings":
-                _booking(conn, src, row, where, s, dayfirst, instrument, user, rate_for, now)
+                _booking(conn, src, row, where, s, dayfirst, instrument, user)
             elif src.kind == "incidents":
                 name = src.get(row, "system")
                 start = parse_datetime(src.get(row, "start"), dayfirst)
@@ -524,7 +519,7 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
                 s.add("incidents imported")
 
 
-def _booking(conn, src, row, where, s, dayfirst, instrument, user, rate_for, now):
+def _booking(conn, src, row, where, s, dayfirst, instrument, user):
     name, login = src.get(row, "system"), src.get(row, "user")
     if not name or not login:
         s.problem(f"{where}: needs a system and a login")
@@ -552,26 +547,43 @@ def _booking(conn, src, row, where, s, dayfirst, instrument, user, rate_for, now
     if end is None or end <= start:
         s.problem(f"{where}: no end time or duration")
         return
-    iid, uid = instrument(name), user(login)
-    st, en = logic.fmt(start), logic.fmt(end)
-    if conn.execute("SELECT 1 FROM bookings WHERE instrument_id=? AND user_id=? AND start=? "
-                    "AND end=?", (iid, uid, st, en)).fetchone():
-        s.add("already imported")
-        return
-    status = booking_status(src.get(row, "status"))
-    if status in ("approved", "pending") and conn.execute(
-            "SELECT 1 FROM bookings WHERE instrument_id=? AND status IN ('approved','pending') "
-            "AND start < ? AND end > ?", (iid, en, st)).fetchone():
-        s.add("overlap existing bookings")
     amount = parse_number(src.get(row, "amount")) if src.mapping.get("amount") else None
     purpose = " · ".join(str(x) for x in (src.get(row, "comment"),
                                           f"Project: {src.get(row, 'project')}"
                                           if src.get(row, "project") else None) if x)
     created = parse_datetime(src.get(row, "created"), dayfirst) if src.mapping.get("created") \
         else None
+    result = record_history(conn, instrument(name), user(login), start, end,
+                            booking_status(src.get(row, "status")), amount, purpose, created)
+    s.add({"exists": "already imported", "overlap": "overlap existing bookings"}.get(
+        result, "bookings imported"))
+    if result == "overlap":
+        s.add("bookings imported")
+
+
+def record_history(conn, iid: int, uid: int, start: datetime, end: datetime,
+                   status: str = "approved", amount: float | None = None, purpose: str = "",
+                   created: datetime | None = None, note: str = NOTE) -> str:
+    """Store a booking that already happened elsewhere, as it was: no booking
+    rules, and the amount charged (if known) as its fixed price. Returns
+    'exists' (skipped), 'overlap' (stored, but it overlaps another booking)
+    or 'ok'."""
+    st, en = logic.fmt(start), logic.fmt(end)
+    if end <= start:
+        raise ValueError("the end must be after the start")
+    if status not in ("approved", "pending", "rejected", "cancelled"):
+        raise ValueError(f"unknown status {status!r}")
+    if conn.execute("SELECT 1 FROM bookings WHERE instrument_id=? AND user_id=? AND start=? "
+                    "AND end=?", (iid, uid, st, en)).fetchone():
+        return "exists"
+    overlap = status in ("approved", "pending") and conn.execute(
+        "SELECT 1 FROM bookings WHERE instrument_id=? AND status IN ('approved','pending') "
+        "AND start < ? AND end > ?", (iid, en, st)).fetchone()
+    rate = conn.execute("SELECT r.rate FROM rates r JOIN users u ON u.category=r.category "
+                        "WHERE r.instrument_id=? AND u.id=?", (iid, uid)).fetchone()
     conn.execute(
         "INSERT INTO bookings (instrument_id, user_id, start, end, purpose, status, rate, "
         "created, note, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (iid, uid, st, en, purpose, status, rate_for(iid, uid),
-         logic.fmt(created) if created else st, NOTE, amount))
-    s.add("bookings imported")
+        (iid, uid, st, en, purpose, status, rate[0] if rate else 0.0,
+         logic.fmt(created) if created else st, note, amount))
+    return "overlap" if overlap else "ok"

@@ -223,6 +223,7 @@ class MainWindow(QMainWindow):
             am.addAction(act("Problems and out of order…", self.edit_issues))
             am.addAction(act("Lab settings…", self.edit_settings))
             am.addAction(act("Import from PPMS…", self.import_ppms))
+            am.addAction(act("Connect to Claude…", self.connect_claude))
             am.addSeparator()
             am.addAction(act("Booking from other computers…", self.network))
         hm = mb.addMenu("&Help")
@@ -514,6 +515,10 @@ class MainWindow(QMainWindow):
     def edit_settings(self):
         if SettingsDialog(self.conn, self.data_dir, self).exec() == QDialog.DialogCode.Accepted:
             self.reload_instruments()
+
+    def connect_claude(self):
+        from .claude import ClaudeDialog
+        ClaudeDialog(self.conn, self.me, self.data_dir, self).exec()
 
     def network(self):
         ServerDialog(self.server, self).exec()
