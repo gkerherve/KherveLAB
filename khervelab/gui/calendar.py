@@ -58,19 +58,27 @@ def _clip(t: QGraphicsSimpleTextItem, width: float) -> None:
 
 class BookingItem(QGraphicsRectItem):
     def __init__(self, seg: Segment, rect: QRectF, colour: str, title: str, subtitle: str,
-                 tip: str, editable: bool):
+                 tip: str, editable: bool, stripe: str | None = None,
+                 outline: str | None = None):
         super().__init__(rect)
         self.seg, self.editable = seg, editable
         c = QColor(colour)
         pending = seg.booking["status"] == "pending"
         if pending:
-            self.setBrush(QBrush(c.lighter(140)))
+            self.setBrush(QBrush(c.lighter(150)))
             self.setPen(QPen(c.darker(130), 1.5, Qt.PenStyle.DashLine))
             text_colour = QColor("#1f2328")
         else:
             self.setBrush(QBrush(c))
             self.setPen(QPen(c.darker(150), 2 if seg.booking.get("mine") else 1))
             text_colour = QColor(readable_text(colour))
+        if outline:                                   # booked during a reported issue
+            self.setPen(QPen(QColor(outline), 3))
+        if stripe:                                    # which instrument, on the all view
+            bar = QGraphicsRectItem(QRectF(rect.x(), rect.y(), 4, rect.height()), self)
+            bar.setBrush(QBrush(QColor(stripe)))
+            bar.setPen(QPen(Qt.PenStyle.NoPen))
+            rect = rect.adjusted(4, 0, 0, 0)
         self.setToolTip(tip)
         self.setZValue(10)
         self.setAcceptHoverEvents(True)
@@ -127,6 +135,7 @@ class CalendarView(QGraphicsView):
         self._ghost = None
         self._month_cells: list[tuple[QRectF, date]] = []
         self._scrolled = False
+        self.palette_cfg: dict[str, str] = {}
 
     # -- state -----------------------------------------------------------------
     def set_state(self, conn, me, instruments: list, single: bool, anchor: date, mode: str,
@@ -205,6 +214,10 @@ class CalendarView(QGraphicsView):
     def rebuild(self) -> None:
         sc = self.scene()
         sc.clear()
+        if self.conn is not None:
+            self.palette_cfg = {k: db.setting(self.conn, f"colour_{v}") for k, v in
+                                (("free", "free"), ("booked", "booked"),
+                                 ("problem", "problem"), ("down", "down"))}
         self._ghost = None
         self.setBackgroundBrush(QColor(self.colours.background))
         if self.conn is None:
@@ -232,47 +245,6 @@ class CalendarView(QGraphicsView):
             self._scrolled = True
             QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(int(7 * 60 * PPM)))
 
-    def _draw_periods(self, inst, day: date, x: float) -> None:
-        """Closed outside the instrument's periods; evening and weekend
-        windows are labelled with how they are booked."""
-        sc, c = self.scene(), self.colours
-        none = QPen(Qt.PenStyle.NoPen)
-        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.closed)).setZValue(-2.5)
-        d0, d1 = self._at(day, 0), self._at(day, 1440)
-        small = QFont()
-        small.setPointSizeF(7.5)
-        for p in logic.periods(inst, d0, d1):
-            s0, s1 = max(p.start, d0), min(p.end, d1)
-            m0 = (s0 - d0).total_seconds() / 60
-            m1 = (s1 - d0).total_seconds() / 60
-            r = QRectF(x + 1, HEADER + m0 * PPM, self.colw - 2, (m1 - m0) * PPM)
-            sc.addRect(r, none, QColor(c.background)).setZValue(-2)
-            if p.slot and p.slot >= 60:              # show where long slots meet
-                k = 1
-                while p.start + timedelta(minutes=k * p.slot) < p.end:
-                    t = p.start + timedelta(minutes=k * p.slot)
-                    if d0 < t < d1:
-                        y = HEADER + (t - d0).total_seconds() / 60 * PPM
-                        sc.addLine(x + 1, y, x + self.colw - 1, y,
-                                   QPen(QColor(inst["colour"]), 1, Qt.PenStyle.DotLine)
-                                   ).setZValue(-0.6)
-                    k += 1
-            if p.kind != "day" or p.slot is None:
-                tint = QColor(inst["colour"])
-                tint.setAlpha(14 if p.slot else 26)
-                sc.addRect(r, none, tint).setZValue(-1.9)
-            if p.start >= d0 and p.kind != "day":
-                how = "one booking" if p.slot is None else f"{logic.fmt_duration(p.slot)} slots"
-                sc.addLine(x + 1, r.top(), x + self.colw - 1, r.top(),
-                           QPen(QColor(inst["colour"]), 1, Qt.PenStyle.DashLine)).setZValue(-0.5)
-                span = (f"{p.start:%H:%M}–{p.end:%H:%M}" if (p.end - p.start) <= timedelta(days=1)
-                        else f"{p.start:%a %H:%M} → {p.end:%a %H:%M}")
-                t = sc.addSimpleText(f"{p.label} {span} · {how}", small)
-                t.setBrush(QColor(c.muted))
-                _clip(t, self.colw - 4)               # never spill into the next column
-                t.setPos(x + max(4, self.colw - t.boundingRect().width() - 4), r.top() + 1)
-                t.setZValue(-0.5)
-
     def _draw_grid(self) -> None:
         sc, c = self.scene(), self.colours
         today = date.today()
@@ -282,10 +254,8 @@ class CalendarView(QGraphicsView):
             if col.day == today and (self.mode == WEEK or self.single):
                 sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.today)).setZValue(-3)
             inst = self._inst(col.instrument) if (self.single or self.mode == DAY) else None
-            if inst is not None and inst["booking_mode"] == "sessions":
-                self._draw_sessions(inst, col.day, x)
-            elif inst is not None:
-                self._draw_periods(inst, col.day, x)
+            if inst is not None:
+                self._draw_slots(inst, col.day, x)
         grid, hour = QPen(QColor(c.grid)), QPen(QColor(c.grid_hour))
         right = GUTTER + self.colw * len(self.columns)
         for slot in range(49):
@@ -295,32 +265,58 @@ class CalendarView(QGraphicsView):
             x = GUTTER + i * self.colw
             sc.addLine(x, HEADER, x, HEADER + DAY_H, hour).setZValue(-1)
 
-    def _draw_sessions(self, inst, day: date, x: float) -> None:
-        """Outside sessions is closed; each session is an open band, labelled,
-        with a line where one session hands over to the next."""
-        sc, c = self.scene(), self.colours
+    def _draw_slots(self, inst, day: date, x: float) -> None:
+        """An empty calendar is not blank: every bookable slot is a box, grey
+        when free and yellow or red when a problem or an out-of-order period
+        touches it (its exact span is marked on the slot's left edge).
+        Bookings are drawn on top. Outside the slots is closed."""
+        sc, c, pal = self.scene(), self.colours, self.palette_cfg
         none = QPen(Qt.PenStyle.NoPen)
-        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none, QColor(c.closed)).setZValue(-2.5)
+        # closed time is hatched, so it never looks like a free (grey) slot
+        sc.addRect(QRectF(x, HEADER, self.colw, DAY_H), none,
+                   QBrush(QColor(c.grid_hour), Qt.BrushStyle.BDiagPattern)).setZValue(-2.5)
         d0, d1 = self._at(day, 0), self._at(day, 1440)
-        edge = QColor(inst["colour"])
-        tint = QColor(inst["colour"])
-        tint.setAlpha(18)
         small = QFont()
         small.setPointSizeF(7.5)
-        for o in logic.occurrences(self.conn, inst["id"], d0, d1):
-            s, e = max(o.start, d0), min(o.end, d1)
-            m0 = (s - d0).total_seconds() / 60
-            m1 = (e - d0).total_seconds() / 60
-            r = QRectF(x + 1, HEADER + m0 * PPM, self.colw - 2, (m1 - m0) * PPM)
-            sc.addRect(r, none, QColor(c.background)).setZValue(-2)
-            sc.addRect(r, none, tint).setZValue(-1.9)
-            if o.start >= d0:                       # the session starts here: mark and name it
-                sc.addLine(x + 1, r.top(), x + self.colw - 1, r.top(),
-                           QPen(edge, 1.5)).setZValue(-0.5)
-                t = sc.addSimpleText(f"{o.name} {o.start:%H:%M}–{o.end:%H:%M}", small)
-                t.setBrush(QColor(c.muted))
-                t.setPos(x + self.colw - t.boundingRect().width() - 4, r.top() + 1)
-                t.setZValue(-0.5)
+        day_issues = logic.issues(self.conn, inst["id"], d0, d1)
+        for s0, s1, label in logic.slots(self.conn, inst, d0, d1):
+            a, b = max(s0, d0), min(s1, d1)
+            m0 = (a - d0).total_seconds() / 60
+            m1 = (b - d0).total_seconds() / 60
+            r = QRectF(x + 3, HEADER + m0 * PPM + 1, self.colw - 6, (m1 - m0) * PPM - 2)
+            kinds = {i["kind"] for i in day_issues
+                     if logic.parse(i["start"]) < s1 and
+                     (i["end"] is None or logic.parse(i["end"]) > s0)}
+            state = "down" if "down" in kinds else "problem" if "problem" in kinds else "free"
+            fill = QColor(pal[state])
+            box = sc.addRect(r, QPen(QColor(pal[state]).darker(115), 1), fill)
+            box.setZValue(-0.9)                       # above the half-hour grid lines
+            if r.height() >= 13 and s0 >= d0:
+                span = (f"{s0:%H:%M}–{s1:%H:%M}" if s1 - s0 < timedelta(days=1)
+                        else f"{s0:%a %H:%M} → {s1:%a %H:%M}")
+                if label not in ("Daytime",):
+                    span = f"{label} {span}"
+                if state == "down":
+                    span += " · out of order"
+                elif state == "problem":
+                    span += " · problem"
+                t = sc.addSimpleText(span, small)
+                t.setBrush(QColor("#ffffff" if state == "down" else c.muted
+                                  if state == "free" else "#1f2328"))
+                _clip(t, self.colw - 10)
+                t.setPos(r.x() + 4, r.y() + 1)
+                t.setZValue(-0.8)
+        for i in day_issues:                          # the exact time of each issue
+            a = max(logic.parse(i["start"]), d0)
+            b = min(logic.parse(i["end"]) if i["end"] else d1, d1)
+            if b <= a:
+                continue
+            y0 = HEADER + (a - d0).total_seconds() / 60 * PPM
+            y1 = HEADER + (b - d0).total_seconds() / 60 * PPM
+            bar = sc.addRect(QRectF(x + 1, y0, 4, y1 - y0), none,
+                             QColor(pal["down" if i["kind"] == "down" else "problem"]))
+            bar.setZValue(-0.7)
+            bar.setToolTip(f"{logic.ISSUE_LABELS[i['kind']]}: {i['note'] or 'no details'}")
 
     def _segments(self) -> list[Segment]:
         first, last = self.columns[0].day, self.columns[-1].day
@@ -368,7 +364,11 @@ class CalendarView(QGraphicsView):
         for seg in self._segments():
             b = seg.booking
             inst = self._inst(b["instrument_id"])
-            colour = inst["colour"] if inst else "#888888"
+            colour = self.palette_cfg.get("booked", "#1f6feb")
+            stripe = inst["colour"] if (inst and not self.single) else None
+            state = logic.issue_state(self.conn, b["instrument_id"], logic.parse(b["start"]),
+                                      logic.parse(b["end"]))
+            outline = self.palette_cfg.get(state) if state != "ok" else None
             w = (self.colw - 6) / seg.lanes
             x = GUTTER + seg.col * self.colw + 3 + seg.lane * w
             rect = QRectF(x, HEADER + seg.m0 * PPM + 1, w - 2, (seg.m1 - seg.m0) * PPM - 2)
@@ -390,8 +390,10 @@ class CalendarView(QGraphicsView):
                                                                self.me["role"] == "admin") else "")
                    + (f"<br>Cost: {cur}{logic.cost(self.conn, b):,.2f}"
                       if b["mine"] or self.me["role"] == "admin" else ""))
+            if outline:
+                tip += f"<br><b>{'Out of order' if state == 'down' else 'Problem reported'}</b>"
             self.scene().addItem(BookingItem(seg, rect, colour, title, sub, tip,
-                                             b["editable"]))
+                                             b["editable"], stripe, outline))
 
     def _draw_now(self) -> None:
         now = logic.now_local(self.conn)
@@ -440,7 +442,8 @@ class CalendarView(QGraphicsView):
                 room = max(0, int((ch - 22) // 15))
                 for k, b in enumerate(items[:room]):
                     inst = self._inst(b["instrument_id"])
-                    colour = inst["colour"] if inst else "#888888"
+                    colour = (self.palette_cfg.get("booked", "#1f6feb") if self.single else
+                              inst["colour"] if inst else "#888888")
                     bar = QRectF(r.x() + 4, r.y() + 20 + k * 15, cw - 8, 13)
                     pending = b["status"] == "pending"
                     item = sc.addRect(bar, QPen(QColor(colour), 1, Qt.PenStyle.DashLine if pending

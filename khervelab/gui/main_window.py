@@ -22,11 +22,11 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QHBoxLayout, QL
 
 from .. import __app_name__, __version__, db, logic
 from . import theme
-from .admin import InstrumentsDialog, NetworkServer, ServerDialog, SettingsDialog, UsersDialog, \
-    swatch
+from .admin import (InstrumentsDialog, IssuesDialog, NetworkServer, ServerDialog,
+                    SettingsDialog, UsersDialog, swatch)
 from .calendar import DAY, MONTH, WEEK, CalendarView
-from .dialogs import (AccountDialog, BookingDetailsDialog, BookingDialog, LoginDialog,
-                      RegisterDialog)
+from .dialogs import (AccountDialog, BookingDetailsDialog, BookingDialog, IssueDialog,
+                      LoginDialog, RegisterDialog)
 from .panels import MyBookingsDialog, ReportsDialog, RequestsWidget
 
 REFRESH_MS = 30_000      # bookings made through the web pages appear within this
@@ -119,6 +119,8 @@ class MainWindow(QMainWindow):
         tb.addAction(act("New booking", self.new_booking, "Ctrl+N"))
         if not self.guest:
             tb.addAction(act("My bookings", self.my_bookings, "Ctrl+B"))
+            tb.addAction(act("Report a problem…", self.report_issue, None,
+                             "Report a problem or an accident with an instrument"))
 
         self.requests = None
         if self.admin:
@@ -193,6 +195,7 @@ class MainWindow(QMainWindow):
             am.addAction(act("Instruments and rates…", self.edit_instruments))
             am.addAction(act("Users…", self.edit_users))
             am.addAction(act("Usage and costs…", self.reports))
+            am.addAction(act("Problems and out of order…", self.edit_issues))
             am.addAction(act("Lab settings…", self.edit_settings))
             am.addSeparator()
             am.addAction(act("Booking from other computers…", self.network))
@@ -284,7 +287,29 @@ class MainWindow(QMainWindow):
         if self.requests is not None:
             self.requests.refresh()
 
+    def _legend(self) -> str:
+        def chip(key, label):
+            colour = db.setting(self.conn, f"colour_{key}")
+            return (f"<span style='background:{colour};color:{colour}'>&nbsp;&nbsp;&nbsp;</span>"
+                    f"&nbsp;{label}")
+        return "&nbsp;&nbsp;".join((chip("free", "free"), chip("booked", "booked"),
+                                    chip("problem", "problem"), chip("down", "out of order")))
+
+    def _status(self, inst) -> str:
+        i = logic.current_issue(self.conn, inst["id"])
+        if i is None:
+            return ""
+        colour = db.setting(self.conn, "colour_down" if i["kind"] == "down" else "colour_problem")
+        what = "OUT OF ORDER" if i["kind"] == "down" else "Problem reported"
+        until = f" until {i['end'].replace('T', ' ')}" if i["end"] else " until fixed"
+        return (f"<span style='color:{colour}'><b>{what}</b> since "
+                f"{i['start'].replace('T', ' ')}{until}"
+                + (f": {html.escape(i['note'])}" if i["note"] else "") + "</span><br>")
+
     def _info(self, inst) -> str:
+        return self._status(inst) + self._info_text(inst) + "<br>" + self._legend()
+
+    def _info_text(self, inst) -> str:
         cur = db.setting(self.conn, "currency")
         rate = logic.rate_for(self.conn, inst["id"], self.me["category"])
         trained = logic.is_authorised(self.conn, self.me["id"], inst["id"])
@@ -434,6 +459,19 @@ class MainWindow(QMainWindow):
 
     def reports(self):
         ReportsDialog(self.conn, self.me, self).exec()
+
+    def report_issue(self):
+        tab = self.tabs.currentWidget()
+        dlg = IssueDialog(self.conn, self.me, tab.instrument_id if tab else None, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Thank you: the problem is on the calendar and the lab "
+                                         "manager can see it.", 8000)
+            self.refresh()
+
+    def edit_issues(self):
+        dlg = IssuesDialog(self.conn, self)
+        dlg.exec()
+        self.refresh()
 
     def edit_settings(self):
         if SettingsDialog(self.conn, self.data_dir, self).exec() == QDialog.DialogCode.Accepted:

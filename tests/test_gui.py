@@ -502,3 +502,46 @@ def test_editor_whole_weekend_with_a_48_hour_slot(qtbot, lab):
     row = lab["conn"].execute("SELECT weekend_span, weekend_slot FROM instruments WHERE id=?",
                               (dlg.current,)).fetchone()
     assert tuple(row) == ("whole", 48 * 60)
+
+
+def test_empty_calendar_shows_grey_slots_and_issue_colours(qtbot, lab):
+    from PyQt6.QtWidgets import QGraphicsRectItem
+    conn = lab["conn"]
+    conn.execute("UPDATE instruments SET open_time='08:00', close_time='17:00', slot_minutes=270, "
+                 "evening_mode='closed', weekend_mode='closed' WHERE id=?", (lab["xps"],))
+    d = weekday()
+    logic.report_issue(conn, lab["xps"], "down", at(d, 13), None, "leak", lab["alice"]["id"])
+    w = window(qtbot, lab)
+    w.anchor = d
+    w.tabs.setCurrentIndex(2)
+    w.set_mode("day")
+    view = w.tabs.currentWidget().view
+    pal = view.palette_cfg
+    boxes = [i for i in view.scene().items() if isinstance(i, QGraphicsRectItem)
+             and not isinstance(i, BookingItem) and i.zValue() == -0.9]
+    fills = sorted(i.brush().color().name() for i in boxes)
+    assert len(boxes) == 2                                   # 08:00-12:30 and 12:30-17:00
+    assert fills == sorted([pal["free"], pal["down"]])
+    # the status line reports what is in effect now
+    now = logic.now_local(conn)
+    logic.report_issue(conn, lab["nap"], "down", now - timedelta(hours=1), None, "leak", None)
+    w.tabs.setCurrentIndex(1)
+    assert "OUT OF ORDER" in w.tabs.currentWidget().info.text()
+
+
+def test_report_problem_dialog(qtbot, lab):
+    from khervelab.gui.dialogs import IssueDialog
+    dlg = IssueDialog(lab["conn"], lab["alice"], lab["xps"])
+    qtbot.addWidget(dlg)
+    dlg.kind.setCurrentIndex(dlg.kind.findData("problem"))
+    dlg.note.setPlainText("charge neutraliser unstable")
+    dlg._ok()
+    row = lab["conn"].execute("SELECT * FROM issues").fetchone()
+    assert row["kind"] == "problem" and row["end"] is None and row["reported_by"] == \
+        lab["alice"]["id"]
+    from khervelab.gui.admin import IssuesDialog
+    mgr = IssuesDialog(lab["conn"])
+    qtbot.addWidget(mgr)
+    mgr.table.selectRow(0)
+    mgr._resolve()
+    assert lab["conn"].execute("SELECT end FROM issues").fetchone()[0] is not None

@@ -161,6 +161,75 @@ def rates(conn, instrument_id: int) -> dict[str, float]:
 
 # -- bookings ---------------------------------------------------------------------------
 
+# -- reported problems and out-of-order periods ---------------------------------------
+
+ISSUE_LABELS = {"problem": "Problem (still usable, take care)",
+                "down": "Out of order (cannot be used)"}
+
+
+def report_issue(conn, instrument_id: int, kind: str, start: datetime,
+                 end: datetime | None, note: str, user_id: int | None) -> int:
+    if kind not in ISSUE_LABELS:
+        raise ValueError(kind)
+    if end is not None and end <= start:
+        raise ValueError("the end must be after the start")
+    return conn.execute(
+        "INSERT INTO issues (instrument_id, kind, start, end, note, reported_by, created) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (instrument_id, kind, fmt(start), fmt(end) if end else None, note.strip(), user_id,
+         fmt(now_local(conn)))).lastrowid
+
+
+def resolve_issue(conn, issue_id: int, when: datetime | None = None) -> None:
+    """Fixed: the issue ends now (or at `when`)."""
+    when = when or now_local(conn)
+    row = conn.execute("SELECT start FROM issues WHERE id=?", (issue_id,)).fetchone()
+    if row is not None and parse(row["start"]) > when:
+        conn.execute("DELETE FROM issues WHERE id=?", (issue_id,))   # never began
+    else:
+        conn.execute("UPDATE issues SET end=? WHERE id=?", (fmt(when), issue_id))
+
+
+def issues(conn, instrument_id: int, start: datetime, end: datetime) -> list[sqlite3.Row]:
+    """Issues overlapping [start, end); an open-ended issue runs on until fixed."""
+    return conn.execute(
+        "SELECT * FROM issues WHERE instrument_id=? AND start < ? AND (end IS NULL OR end > ?) "
+        "ORDER BY start", (instrument_id, fmt(end), fmt(start))).fetchall()
+
+
+def current_issue(conn, instrument_id: int) -> sqlite3.Row | None:
+    now = now_local(conn)
+    rows = issues(conn, instrument_id, now, now + timedelta(minutes=1))
+    return next((r for r in rows if r["kind"] == "down"), rows[0] if rows else None)
+
+
+def issue_state(conn, instrument_id: int, start: datetime, end: datetime) -> str:
+    """'down', 'problem' or 'ok' for a stretch of time (worst wins)."""
+    kinds = {r["kind"] for r in issues(conn, instrument_id, start, end)}
+    return "down" if "down" in kinds else "problem" if "problem" in kinds else "ok"
+
+
+def slots(conn, inst, start: datetime, end: datetime) -> list[tuple[datetime, datetime, str]]:
+    """Every bookable slot overlapping [start, end) as (start, end, label):
+    session occurrences, or each free-time period cut into its slots (a
+    one-booking period is a single slot). The calendar draws these, so an
+    empty calendar still shows what can be booked."""
+    if inst["booking_mode"] == "sessions":
+        return [(o.start, o.end, o.name) for o in occurrences(conn, inst["id"], start, end)]
+    out = []
+    for p in periods(inst, start, end):
+        if p.slot is None:
+            out.append((p.start, p.end, p.label))
+            continue
+        t = p.start
+        while t < p.end and t < end:
+            t1 = min(p.end, t + timedelta(minutes=p.slot))
+            if t1 > start:
+                out.append((t, t1, p.label))
+            t = t1
+    return out
+
+
 # -- daytime, evening and weekend periods (free-time instruments) ----------------------
 
 PERIOD_MODES = {
@@ -487,6 +556,13 @@ def check(conn, inst: sqlite3.Row, user: sqlite3.Row, start: datetime, end: date
     minutes = None
     if not inst["active"]:
         errors.append(f"{inst['name']} is not available for booking")
+    if not admin:
+        for r in issues(conn, inst["id"], start, end):
+            if r["kind"] == "down":
+                until = f" until {r['end'].replace('T', ' ')}" if r["end"] else " until fixed"
+                errors.append(f"{inst['name']} is out of order{until}"
+                              + (f": {r['note']}" if r["note"] else ""))
+                break
     if not admin:
         if start < now:
             errors.append("the start is in the past")

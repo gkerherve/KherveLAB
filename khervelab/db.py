@@ -114,6 +114,20 @@ CREATE TABLE IF NOT EXISTS bookings (
     session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     price REAL                      -- fixed session price; NULL means hours x rate
 );
+-- reported trouble with an instrument: 'problem' (usable, take care) or
+-- 'down' (out of order: cannot be booked); end NULL = until fixed
+CREATE TABLE IF NOT EXISTS issues (
+    id INTEGER PRIMARY KEY,
+    instrument_id INTEGER NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('problem', 'down')),
+    start TEXT NOT NULL,
+    end TEXT,
+    note TEXT NOT NULL DEFAULT '',
+    reported_by INTEGER REFERENCES users(id),
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS issues_instrument ON issues(instrument_id, start);
+
 CREATE INDEX IF NOT EXISTS bookings_slot ON bookings(instrument_id, start);
 CREATE INDEX IF NOT EXISTS bookings_user ON bookings(user_id, start);
 """
@@ -125,6 +139,11 @@ DEFAULT_SETTINGS = {
     "categories": "Internal\nExternal academic\nIndustry",
     "account_approval": "1",   # new accounts wait for the administrator
     "show_names": "1",         # logged-in users see who booked a slot
+    # calendar colours for slots
+    "colour_free": "#d8dde3",
+    "colour_booked": "#1f6feb",
+    "colour_problem": "#e3b341",
+    "colour_down": "#cf222e",
 }
 
 

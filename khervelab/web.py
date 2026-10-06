@@ -306,6 +306,14 @@ def create_app(data_dir: Path | str) -> Flask:
                         "color": b["colour"], "classNames": [b["status"]] + (["mine"] if mine
                                                                              else [])})
         if iid:
+            for r in logic.issues(g.db, iid, start, end):
+                out.append({"start": r["start"], "end": r["end"] or logic.fmt(end),
+                            "display": "background",
+                            "color": db.setting(g.db, "colour_down" if r["kind"] == "down"
+                                                else "colour_problem"),
+                            "title": ("Out of order" if r["kind"] == "down" else "Problem")
+                            + (f": {r['note']}" if r["note"] else ""),
+                            "classNames": ["issue"]})
             inst = g.db.execute("SELECT * FROM instruments WHERE id=?", (iid,)).fetchone()
             if inst and inst["booking_mode"] == "sessions":
                 for o in logic.occurrences(g.db, iid, start, end):

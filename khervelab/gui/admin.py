@@ -11,7 +11,7 @@ the Free Software Foundation, either version 3 of the License, or
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTime
@@ -712,6 +712,16 @@ class SettingsDialog(QDialog):
         form.addRow("Rate categories\n(one per line)", self.categories)
         form.addRow("", self.account_approval)
         form.addRow("", self.show_names)
+        self.colour_buttons = {}
+        colours = QHBoxLayout()
+        for key, label in (("free", "Free slot"), ("booked", "Booked"),
+                           ("problem", "Problem"), ("down", "Out of order")):
+            b = QPushButton(label)
+            self._paint_button(b, s(f"colour_{key}"))
+            b.clicked.connect(lambda _=False, k=key: self._pick(k))
+            self.colour_buttons[key] = b
+            colours.addWidget(b)
+        form.addRow("Calendar colours", colours)
         backup = QPushButton("Back up the lab database…")
         backup.clicked.connect(self._backup)
         where = QLabel(f"Data: <code>{data_dir / 'lab.db'}</code>")
@@ -725,6 +735,17 @@ class SettingsDialog(QDialog):
         lay.addWidget(where)
         lay.addWidget(backup)
         lay.addWidget(bb)
+
+    @staticmethod
+    def _paint_button(b: QPushButton, colour: str):
+        b.setProperty("colour", colour)
+        b.setIcon(swatch(colour))
+
+    def _pick(self, key: str):
+        b = self.colour_buttons[key]
+        c = QColorDialog.getColor(QColor(b.property("colour")), self, b.text())
+        if c.isValid():
+            self._paint_button(b, c.name())
 
     def _backup(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -753,6 +774,8 @@ class SettingsDialog(QDialog):
         db.set_setting(self.conn, "account_approval",
                        "1" if self.account_approval.isChecked() else "0")
         db.set_setting(self.conn, "show_names", "1" if self.show_names.isChecked() else "0")
+        for key, b in self.colour_buttons.items():
+            db.set_setting(self.conn, f"colour_{key}", b.property("colour"))
         self.accept()
 
 
@@ -854,3 +877,78 @@ class ServerDialog(QDialog):
                 QMessageBox.warning(self, "Network", f"Could not start on port "
                                     f"{self.port.value()}: {exc}")
         self._update()
+
+
+class IssuesDialog(QDialog):
+    """Open and recent problems and out-of-order periods; the lab manager
+    resolves them (fixed now) or removes mistaken reports."""
+
+    def __init__(self, conn, parent=None):
+        super().__init__(parent)
+        self.conn = conn
+        self.changed = False
+        self.setWindowTitle("Problems and out of order")
+        self.resize(900, 420)
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Instrument", "What", "From", "Until", "Details",
+                                              "Reported by"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().hide()
+        fixed = QPushButton("Fixed now")
+        fixed.clicked.connect(self._resolve)
+        remove = QPushButton("Remove report")
+        remove.clicked.connect(self._remove)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        row = QHBoxLayout()
+        row.addWidget(fixed)
+        row.addWidget(remove)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.table)
+        lay.addLayout(row)
+        self.fill()
+
+    def fill(self):
+        since = logic.fmt(logic.now_local(self.conn) - timedelta(days=30))
+        rows = self.conn.execute(
+            "SELECT s.*, i.name AS instrument, u.full_name FROM issues s JOIN instruments i "
+            "ON i.id=s.instrument_id LEFT JOIN users u ON u.id=s.reported_by "
+            "WHERE s.end IS NULL OR s.end >= ? ORDER BY s.end IS NOT NULL, s.start DESC",
+            (since,)).fetchall()
+        self.table.setRowCount(len(rows))
+        for r, x in enumerate(rows):
+            what = "Out of order" if x["kind"] == "down" else "Problem"
+            vals = (x["instrument"], what, x["start"].replace("T", " "),
+                    x["end"].replace("T", " ") if x["end"] else "until fixed", x["note"],
+                    x["full_name"] or "")
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                it.setData(Qt.ItemDataRole.UserRole, x["id"])
+                if c == 1:
+                    it.setForeground(QColor(db.setting(self.conn, "colour_down" if x["kind"] ==
+                                                       "down" else "colour_problem")))
+                self.table.setItem(r, c, it)
+        self.table.resizeColumnsToContents()
+
+    def _selected(self) -> list[int]:
+        return [self.table.item(i.row(), 0).data(Qt.ItemDataRole.UserRole)
+                for i in self.table.selectionModel().selectedRows()]
+
+    def _resolve(self):
+        for iid in self._selected():
+            logic.resolve_issue(self.conn, iid)
+        self.changed = True
+        self.fill()
+
+    def _remove(self):
+        ids = self._selected()
+        if ids and QMessageBox.question(self, "Remove", "Remove the selected report(s)? Use "
+                                        "this for mistakes; use Fixed now when a fault is "
+                                        "repaired.") == QMessageBox.StandardButton.Yes:
+            for iid in ids:
+                self.conn.execute("DELETE FROM issues WHERE id=?", (iid,))
+            self.changed = True
+            self.fill()

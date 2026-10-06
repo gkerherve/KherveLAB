@@ -553,3 +553,62 @@ class BookingDetailsDialog(QDialog):
         logic.decide(self.conn, self.b["id"], self.me["id"], approve, note)
         self.changed = True
         self.accept()
+
+
+class IssueDialog(QDialog):
+    """Report a problem or an accident with an instrument."""
+
+    def __init__(self, conn, me, instrument_id: int | None = None, parent=None):
+        super().__init__(parent)
+        self.conn, self.me = conn, me
+        self.issue_id: int | None = None
+        self.setWindowTitle("Report a problem")
+        self.setMinimumWidth(460)
+        self.instrument = QComboBox()
+        for i in conn.execute("SELECT * FROM instruments ORDER BY name"):
+            self.instrument.addItem(i["name"], i["id"])
+        if instrument_id:
+            self.instrument.setCurrentIndex(max(0, self.instrument.findData(instrument_id)))
+        self.kind = QComboBox()
+        for key, label in logic.ISSUE_LABELS.items():
+            self.kind.addItem(label, key)
+        now = logic.now_local(conn)
+        self.start = QDateTimeEdit(qdt(now))
+        self.end = QDateTimeEdit(qdt(now + timedelta(days=1)))
+        for w in (self.start, self.end):
+            w.setCalendarPopup(True)
+            w.setDisplayFormat("ddd d MMM yyyy  HH:mm")
+        self.until_fixed = QCheckBox("Until it is fixed (the lab manager marks it resolved)")
+        self.until_fixed.setChecked(True)
+        self.until_fixed.toggled.connect(lambda on: self.end.setEnabled(not on))
+        self.end.setEnabled(False)
+        self.note = QPlainTextEdit()
+        self.note.setPlaceholderText("What happened, e.g. 'X-ray source tripped', 'vacuum leak'")
+        self.note.setFixedHeight(70)
+        form = QFormLayout()
+        form.addRow("Instrument", self.instrument)
+        form.addRow("What", self.kind)
+        form.addRow("From", self.start)
+        form.addRow("", self.until_fixed)
+        form.addRow("Until", self.end)
+        form.addRow("Details", self.note)
+        info = QLabel("<i>Out of order</i> stops new bookings for that time and shows the slots "
+                      "red; a <i>problem</i> shows them yellow and lets people book with care.")
+        info.setWordWrap(True)
+        bb = _buttons(self, "Report")
+        bb.accepted.connect(self._ok)
+        lay = QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addWidget(info)
+        lay.addWidget(bb)
+
+    def _ok(self):
+        end = None if self.until_fixed.isChecked() else pdt(self.end.dateTime())
+        try:
+            self.issue_id = logic.report_issue(self.conn, self.instrument.currentData(),
+                                               self.kind.currentData(), pdt(self.start.dateTime()),
+                                               end, self.note.toPlainText(), self.me["id"])
+        except ValueError as exc:
+            QMessageBox.warning(self, "Report a problem", str(exc))
+            return
+        self.accept()

@@ -99,6 +99,12 @@ Stack:
   is read-only, and booking actions ask to log in and then continue
   (`switchUser(user, then)`). `gui/app.py` builds one `MainWindow` per user
   and carries the view across (`view_state` / `restore_view`).
+- `issues` rows (`problem` or `down`, `end` NULL = until fixed) colour the
+  calendar. A `down` issue blocks non-manager bookings in `logic.check`.
+  `logic.slots` lists every bookable slot, and `CalendarView._draw_slots`
+  draws them as boxes: grey (free), yellow (problem), red (down), with
+  closed time hatched. Bookings use the `colour_booked` setting; the
+  colours are the `colour_*` settings.
 - A booking is never created by a plain click. In `CalendarView`, creation
   needs a drag past `QApplication.startDragDistance()` or a press held for
   `HOLD_MS` (which arms the slot). Move and resize also ignore movement

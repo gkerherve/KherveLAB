@@ -74,6 +74,35 @@ your choice with `--data FOLDER`.
   this month's total. **Lab ▸ My statement** saves your own PDF, Excel or CSV
   statement.
 
+## Slot colours, problems and out of order
+
+The calendar is never blank. On an instrument's own tab, and in the All
+instruments day view, every bookable slot is drawn as a box (e.g. 08:00–12:30
+and 12:30–17:00 for 4.5 h slots from 08:00, or the whole evening or weekend
+when that is one booking). Each box is:
+
+- **grey** when free;
+- **blue** when booked (pale and dashed while waiting for approval);
+- **yellow** when a problem has been reported for that time;
+- **red** when the instrument is out of order.
+
+Closed time is hatched. The colours are set in **Lab settings ▸ Calendar
+colours**, and each instrument's info line shows a legend and its current
+status.
+
+Reporting and resolving:
+
+- **Report a problem…** (toolbar, any logged-in user) records either a
+  **problem** (still usable, take care) or **out of order** (an accident, the
+  machine cannot be used), from a time until fixed or until a set time, with
+  details.
+- **Out of order** stops new bookings for that time. The lab manager can
+  still book, e.g. for the repair. Existing bookings in that time get a red
+  outline.
+- **Problem** slots can still be booked.
+- **Manage ▸ Problems and out of order** lists reports. **Fixed now** ends
+  one; **Remove report** deletes a mistake.
+
 ## Sessions
 
 An instrument is booked in one of two ways:
