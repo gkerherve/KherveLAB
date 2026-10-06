@@ -201,3 +201,23 @@ def test_detailed_session_list(conn, tmp_path):
     assert s.counts == {"users completed": 1}
     jo = conn.execute("SELECT * FROM users WHERE username='jdoe'").fetchone()
     assert jo["email"] == "jo@uni.example" and jo["full_name"] == "Doe Jo"
+
+
+def test_date_order_comes_from_the_file(conn, tmp_path):
+    mk_inst(conn, "auto")
+    day = _write(tmp_path, "day.csv", "System,User,Date,Hour,Length booked\n"
+                                      "XPS,Doe Jo,01/10/2024,9:00,60\nXPS,Doe Jo,30/09/2026,9:00,60\n")
+    src = ppms.Source("bookings", day, ppms.guess_mapping("bookings", day.headers))
+    assert src.date_order() == (True, "30/09/2026")
+    with pytest.raises(ValueError, match="can only be day first"):
+        ppms.run(conn, [src], dry_run=True, dayfirst=False)       # the mistake is refused
+    s = ppms.run(conn, [src], dry_run=False)                     # automatic
+    assert s.counts["bookings imported"] == 2 and "rows skipped" not in s.counts
+    starts = [r[0] for r in conn.execute("SELECT start FROM bookings ORDER BY start")]
+    assert starts == ["2024-10-01T09:00", "2026-09-30T09:00"]
+    us = _write(tmp_path, "us.csv", "System,User,Date,Hour,Length booked\n"
+                                    "XPS,Doe Jo,09/30/2026,11:00,60\n")
+    src = ppms.Source("bookings", us, ppms.guess_mapping("bookings", us.headers))
+    assert src.date_order() == (False, "09/30/2026")
+    ppms.run(conn, [src], dry_run=False)
+    assert conn.execute("SELECT 1 FROM bookings WHERE start='2026-09-30T11:00'").fetchone()

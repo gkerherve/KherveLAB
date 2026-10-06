@@ -289,7 +289,7 @@ def _ppms_sources(conn, a) -> list[ppms.Source]:
 
 def preview_ppms_import(conn, me, a):
     sources = _ppms_sources(conn, a)
-    s = ppms.run(conn, sources, dry_run=True, dayfirst=a.get("dayfirst", True))
+    s = ppms.run(conn, sources, dry_run=True, dayfirst=a.get("dayfirst"))
     return {"files": [{"path": x.table.path, "kind": x.kind, "rows": len(x.table.rows),
                        "mapping": x.mapping, "columns": x.table.headers,
                        "ppms_systems": x.system_names(), "systems": x.systems}
@@ -302,7 +302,7 @@ def import_ppms(conn, me, a):
     main = next(r for r in conn.execute("PRAGMA database_list") if r[1] == "main")[2]
     backup = Path(main).parent / f"lab-before-ppms-import-{datetime.now():%Y%m%d-%H%M%S}.db"
     db.backup(conn, backup)
-    s = ppms.run(conn, sources, dry_run=False, dayfirst=a.get("dayfirst", True))
+    s = ppms.run(conn, sources, dry_run=False, dayfirst=a.get("dayfirst"))
     return {"done": s.counts, "skipped_rows": s.problems, "backup": str(backup)}
 
 

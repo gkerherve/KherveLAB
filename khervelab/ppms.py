@@ -374,6 +374,31 @@ class Source:
     mapping: dict[str, str | None]
     # PPMS system name -> KherveLAB instrument name, e.g. "XPS / Bay 2" -> "XPS"
     systems: dict[str, str] = field(default_factory=dict)
+    dayfirst: bool = True                       # set by run() for this file
+
+    def date_order(self) -> tuple[bool | None, str]:
+        """(True, example) when a date such as 30/09/2026 can only be day
+        first, (False, example) when one such as 09/30/2026 can only be month
+        first, (None, "") when nothing tells (or the file contradicts itself)."""
+        day = month = ""
+        keys = [k for k in ("date", "start", "end", "created") if self.mapping.get(k)]
+        for row in self.table.rows:
+            for k in keys:
+                m = re.match(r"\s*(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}", str(row.get(
+                    self.mapping[k]) or ""))
+                if m:
+                    a, b = int(m.group(1)), int(m.group(2))
+                    if a > 12 and not day:
+                        day = m.group(0).strip()
+                    if b > 12 and not month:
+                        month = m.group(0).strip()
+            if day and month:
+                return None, ""
+        if day:
+            return True, day
+        if month:
+            return False, month
+        return None, ""
 
     def system(self, row: dict):
         name = self.get(row, "name" if self.kind == "systems" else "system")
@@ -414,6 +439,9 @@ class Summary:
         keys = [k for k in order if self.counts.get(k)] + \
             [k for k in self.counts if k not in order]
         lines = [f"{self.counts[k]:>7,}  {k}" for k in keys] or ["Nothing to import."]
+        if self.counts.get("rows skipped"):
+            lines.insert(0, f"WARNING: {self.counts['rows skipped']:,} rows cannot be imported; "
+                            "the reasons are listed below.\n")
         if self.problems:
             lines += ["", "Rows skipped:"] + [f"  • {p}" for p in self.problems]
         return "\n".join(lines)
@@ -423,7 +451,19 @@ _COLOURS = ["#1f6feb", "#8250df", "#cf222e", "#e16f24", "#9a6700", "#1a7f37", "#
             "#bf3989"]
 
 
-def run(conn, sources: list[Source], dry_run: bool = True, dayfirst: bool = True) -> Summary:
+def run(conn, sources: list[Source], dry_run: bool = True,
+        dayfirst: bool | None = None) -> Summary:
+    """dayfirst None reads each file's date order from the file itself; a
+    choice the file contradicts is refused, because it would put every
+    session on the wrong day and silently skip the rest."""
+    for src in sources:
+        found, example = src.date_order()
+        if dayfirst is not None and found is not None and found != dayfirst:
+            raise ValueError(
+                f"{Path(src.table.path).name} has dates like {example}, which can only be "
+                f"{'day' if found else 'month'} first; choose "
+                f"{'day' if found else 'month'} first (or automatic) for its dates")
+        src.dayfirst = found if found is not None else (True if dayfirst is None else dayfirst)
     s = Summary()
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -565,6 +605,7 @@ def _import(conn, sources: list[Source], s: Summary, dayfirst: bool):
 
     for src in sources:
         seen: dict = {}
+        dayfirst = src.dayfirst
         for n, row in enumerate(src.table.rows, start=1):     # as numbered in the preview
             where = f"{Path(src.table.path).name} row {n}"
             if src.kind == "systems":

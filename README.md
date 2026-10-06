@@ -55,6 +55,8 @@ your choice with `--data FOLDER`.
 - **Tabs:** *All instruments*, then one tab per instrument, each with its own
   calendar. Each instrument tab shows your rate, whether your bookings are
   approved at once, the opening hours and the allowed booking length.
+- **Who booked:** on the *All instruments* week, each card shows the
+  person's name first, then the instrument and the time.
 - **Views:** Day, Week and Month (Ctrl+1/2/3); ◀ ▶ and Today, or ←/→ and T.
   On the *All instruments* tab, the day view puts the instruments side by
   side, one column each.
@@ -273,8 +275,10 @@ The manager sees everything the users see, plus the following:
   bookings or usage (with the amount charged), and incidents. Then add the
   files in the import window:
   - **Matching:** KherveLAB recognises each file and its columns, and shows
-    a preview. You can correct any match, and choose whether dates are day
-    first.
+    a preview. You can correct any match.
+  - **Date order:** it is read from each file (a date like 30/09/2026 can
+    only be day first). Forcing an order the file contradicts is refused.
+    If any rows cannot be imported, the import says so before saving.
   - **Dry run:** **Check** shows exactly what the import would create and
     which rows it would skip, and why. Nothing is saved until **Import**.
   - **Safe:** a backup of the lab is saved just before importing, and

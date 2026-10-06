@@ -433,7 +433,8 @@ class CalendarView(QGraphicsView):
                     else f"{s:%a %H:%M}–{e:%a %H:%M}")
             pend = " (pending)" if b["status"] == "pending" else ""
             if self.mode == WEEK and not self.single and len(self.instruments) > 1:
-                title, sub = (inst["name"] if inst else "?"), f"{when} · {b['who']}{pend}"
+                # who first: the instrument already shows in the card's colour
+                title, sub = b["who"], f"{inst['name'] if inst else '?'} · {when}{pend}"
             else:
                 private = b["mine"] or logic.acts_for_others(self.me)
                 title, sub = f"{when} {b['who']}", ((b["purpose"] or "") if private else "") + pend

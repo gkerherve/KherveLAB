@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
+from PyQt6.QtWidgets import (QComboBox, QDialog, QFileDialog, QFormLayout,
                              QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
                              QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                              QWidget)
@@ -147,8 +147,10 @@ class PpmsImportDialog(QDialog):
         intro.setWordWrap(True)
         add = QPushButton("Add exported files…")
         add.clicked.connect(self._add)
-        self.dayfirst = QCheckBox("Dates are day first (03/02/2026 is 3 February)")
-        self.dayfirst.setChecked(True)
+        self.dayfirst = QComboBox()
+        self.dayfirst.addItem("Date order: read from each file (recommended)", None)
+        self.dayfirst.addItem("Dates are day first (03/02/2026 is 3 February)", True)
+        self.dayfirst.addItem("Dates are month first (03/02/2026 is 2 March)", False)
         row = QHBoxLayout()
         row.addWidget(add)
         row.addWidget(self.dayfirst)
@@ -222,14 +224,27 @@ class PpmsImportDialog(QDialog):
             return
         backup = ""
         if not dry:
-            if QMessageBox.question(self, "Import from PPMS",
-                                    "Import these files into the lab? A backup of the lab is "
-                                    "saved first.") != QMessageBox.StandardButton.Yes:
+            try:
+                check = ppms.run(self.conn, sources, dry_run=True,
+                                 dayfirst=self.dayfirst.currentData())
+            except ValueError as exc:
+                QMessageBox.warning(self, "Import from PPMS", f"{exc}.\n\nNothing was changed.")
+                return
+            skipped = check.counts.get("rows skipped", 0)
+            ask = "Import these files into the lab? A backup of the lab is saved first."
+            if skipped:
+                ask = (f"{skipped:,} rows cannot be imported (press Check to see why). "
+                       "Import the rest anyway? A backup of the lab is saved first.")
+            if QMessageBox.question(self, "Import from PPMS", ask) != \
+                    QMessageBox.StandardButton.Yes:
                 return
             backup = str(self.backup_path())
             db.backup(self.conn, backup)
         try:
-            s = ppms.run(self.conn, sources, dry_run=dry, dayfirst=self.dayfirst.isChecked())
+            s = ppms.run(self.conn, sources, dry_run=dry, dayfirst=self.dayfirst.currentData())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Import from PPMS", f"{exc}.\n\nNothing was changed.")
+            return
         except Exception as exc:
             QMessageBox.critical(self, "Import from PPMS", f"The import stopped and nothing was "
                                  f"changed:\n{exc}")
