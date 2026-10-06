@@ -80,7 +80,8 @@ def create_app(data_dir: Path | str) -> Flask:
                 "(SELECT COUNT(*) FROM users WHERE status='pending')").fetchone()[0]
         return {"csrf_token": session["csrf"], "me": g.get("user"), "pending_count": pending,
                 "lab_name": db.setting(g.db, "lab_name"), "currency": db.setting(g.db, "currency"),
-                "version": __version__, "approval_labels": logic.APPROVAL_LABELS}
+                "version": __version__, "approval_labels": logic.APPROVAL_LABELS,
+                "role_labels": logic.ROLE_LABELS}
 
     def login_required(view):
         @wraps(view)
@@ -263,8 +264,9 @@ def create_app(data_dir: Path | str) -> Flask:
         # snapped exactly as in the app (slots, whole evening/weekend, shortest)
         start, end = logic.normalise_range(g.db, inst, start, end)
         try:
-            made, problems = logic.book_range(g.db, iid, g.user["id"], start, end,
-                                              f.get("purpose", ""))
+            who = _target_user("user_id")
+            made, problems = logic.book_range(g.db, iid, who["id"], start, end,
+                                              f.get("purpose", ""), actor_id=g.user["id"])
         except logic.BookingError as exc:
             flash(f"Not booked: {exc}.", "error")
             return redirect(url_for("instrument", iid=iid, date=start.date().isoformat()))
@@ -279,6 +281,19 @@ def create_app(data_dir: Path | str) -> Flask:
         for p in problems:
             flash(f"Not booked: {p}.", "error")
         return redirect(url_for("instrument", iid=iid, date=start.date().isoformat()))
+
+    def _target_user(arg: str | None):
+        """The person an action is for: yourself, or (lab manager / super user)
+        the user picked in the For list."""
+        uid = request.values.get(arg, type=int) if arg else None
+        if not uid or uid == g.user["id"]:
+            return g.user
+        if not logic.acts_for_others(g.user):
+            abort(403)
+        u = g.db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
+        if u is None:
+            abort(400)
+        return u
 
     def _range_args():
         try:
@@ -295,7 +310,8 @@ def create_app(data_dir: Path | str) -> Flask:
         inst = instrument_or_404(request.args.get("instrument", type=int))
         start, end = _range_args()
         admin = g.user["role"] == "admin"
-        show_names = db.setting(g.db, "show_names") == "1" or admin
+        acting = logic.acts_for_others(g.user)
+        show_names = db.setting(g.db, "show_names") == "1" or acting
         now = logic.fmt(logic.now_local(g.db))
         day_issues = logic.issues(g.db, inst["id"], start, end)
         slots = []
@@ -317,13 +333,17 @@ def create_app(data_dir: Path | str) -> Flask:
             bookings.append({
                 "id": b["id"], "start": b["start"], "end": b["end"], "status": b["status"],
                 "who": "You" if mine else (b["full_name"] if show_names else "Booked"),
-                "purpose": b["purpose"] if (mine or admin) else "",
-                "cost": logic.cost(g.db, b) if (mine or admin) else None,
-                "mine": mine, "issue": state if state != "ok" else "",
-                "cancellable": (mine and b["start"] > now) or admin})
+                "purpose": b["purpose"] if (mine or acting) else "",
+                "cost": logic.cost(g.db, b) if (mine or acting) else None,
+                "mine": mine, "issue": state if state != "ok" else "", "user_id": b["user_id"],
+                "cancellable": ((mine or acting) and b["start"] > now) or admin})
         palette = {k: db.setting(g.db, f"colour_{k}")
                    for k in ("free", "closed", "booked", "problem", "down")}
+        users = ([{"id": u["id"], "label": f"{u['full_name']} ({u['username']})"}
+                  for u in g.db.execute("SELECT * FROM users WHERE status='active' "
+                                        "ORDER BY full_name")] if acting else [])
         return jsonify({"slots": slots, "bookings": bookings, "palette": palette,
+                        "users": users, "me": g.user["id"],
                         "currency": db.setting(g.db, "currency"),
                         "slot_minutes": inst["slot_minutes"]})
 
@@ -332,7 +352,7 @@ def create_app(data_dir: Path | str) -> Flask:
     def quote():
         inst = instrument_or_404(request.args.get("instrument", type=int))
         start, end = _range_args()
-        return jsonify(logic.quote(g.db, inst, g.user, start, end))
+        return jsonify(logic.quote(g.db, inst, _target_user("for"), start, end, actor=g.user))
 
     @app.route("/api/events")
     @login_required
@@ -381,15 +401,29 @@ def create_app(data_dir: Path | str) -> Flask:
     @app.route("/bookings")
     @login_required
     def my_bookings():
+        owner = _target_user("user")          # ?user= for the manager or a super user
         rows = g.db.execute(
             "SELECT b.*, i.name AS instrument FROM bookings b JOIN instruments i "
             "ON i.id=b.instrument_id WHERE b.user_id=? ORDER BY b.start DESC LIMIT 300",
-            (g.user["id"],)).fetchall()
+            (owner["id"],)).fetchall()
         now = logic.fmt(logic.now_local(g.db))
         month0 = date.today().replace(day=1)
-        rep = reports.build(g.db, month0, date.today(), user_id=g.user["id"])
-        return render_template("bookings.html", rows=rows, now=now,
+        rep = reports.build(g.db, month0, date.today(), user_id=owner["id"])
+        users = (g.db.execute("SELECT * FROM users WHERE status='active' ORDER BY full_name"
+                              ).fetchall() if logic.acts_for_others(g.user) else [])
+        return render_template("bookings.html", rows=rows, now=now, owner=owner, users=users,
+                               acting=logic.acts_for_others(g.user),
                                cost=lambda b: logic.cost(g.db, b), month=rep)
+
+    @app.route("/bookings/<int:bid>/reassign", methods=["POST"])
+    @login_required
+    def reassign(bid: int):
+        try:
+            logic.reassign(g.db, bid, g.user, request.form.get("user_id", type=int) or 0)
+            flash("The booking now belongs to the person you chose.", "ok")
+        except logic.BookingError as exc:
+            flash(str(exc), "error")
+        return redirect(request.form.get("back") or url_for("my_bookings"))
 
     @app.route("/bookings/<int:bid>/cancel", methods=["POST"])
     @login_required
@@ -503,7 +537,7 @@ def create_app(data_dir: Path | str) -> Flask:
         insts = _all(g.db, "instruments")
         if request.method == "POST":
             f = request.form
-            role = f.get("role") if f.get("role") in ("user", "admin") else u["role"]
+            role = f.get("role") if f.get("role") in logic.ROLE_LABELS else u["role"]
             status = f.get("status") if f.get("status") in ("pending", "active", "disabled") \
                 else u["status"]
             if uid == g.user["id"] and (role != "admin" or status != "active"):

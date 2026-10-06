@@ -269,3 +269,41 @@ def test_web_instrument_admin_is_read_only(app, browser):
     page = browser.text(f"/admin/instruments/{iid}")
     assert "Manage ▸ Instruments" in page and "<form" not in page.split("<main>")[1].split("</main>")[0]
     assert browser.post(f"/admin/instruments/{iid}", {"name": "x"}).status_code == 405
+
+
+def test_superuser_books_and_manages_for_others_on_the_web(app, browser, new_browser):
+    setup_lab(browser, examples=("BET",))
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_setting(conn, "account_approval", "0")
+    iid = conn.execute("SELECT id FROM instruments").fetchone()[0]
+    conn.execute("UPDATE instruments SET approval='manual' WHERE id=?", (iid,))
+    for cat, rate in (("Internal", 10), ("Industry", 100)):
+        conn.execute("INSERT INTO rates VALUES (?,?,?)", (iid, cat, rate))
+    s, a = new_browser(), new_browser()
+    register(s, "sue")
+    register(a, "alice", category="Industry")
+    sue = conn.execute("SELECT id FROM users WHERE username='sue'").fetchone()[0]
+    alice = conn.execute("SELECT id FROM users WHERE username='alice'").fetchone()[0]
+    browser.post(f"/admin/users/{sue}", {"full_name": "Sue", "role": "superuser",
+                                         "status": "active", "category": "Internal"})
+    login(s, "sue", "alicepass1")
+    login(a, "alice", "alicepass1")
+    day = slot(9)[:10]
+    data = s.get(f"/api/calendar?instrument={iid}&start={day}T00:00&end={day}T23:59").json
+    assert any(u["id"] == alice for u in data["users"])
+    q = s.get(f"/api/quote?instrument={iid}&start={day}T09:00&end={day}T10:00&for={alice}").json
+    assert q["total"] == 100.0 and q["instant"] is False          # alice's rate and approval
+    s.post("/book", {"instrument_id": iid, "start": f"{day}T09:00", "end": f"{day}T10:00",
+                     "user_id": alice})
+    b = conn.execute("SELECT * FROM bookings").fetchone()
+    assert b["user_id"] == alice and b["status"] == "pending"
+    assert "Bookings of" in s.text(f"/bookings?user={alice}")
+    s.post(f"/bookings/{b['id']}/reassign", {"user_id": sue})
+    assert conn.execute("SELECT user_id, rate FROM bookings").fetchone() == (sue, 10.0) or \
+        tuple(conn.execute("SELECT user_id, rate FROM bookings").fetchone()) == (sue, 10.0)
+    # an ordinary user can do none of this
+    assert a.get(f"/api/quote?instrument={iid}&start={day}T09:00&end={day}T10:00"
+                 f"&for={sue}").status_code == 403
+    assert a.get(f"/bookings?user={sue}").status_code == 403
+    assert a.get(f"/api/calendar?instrument={iid}&start={day}T00:00&end={day}T23:59"
+                 ).json["users"] == []

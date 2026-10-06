@@ -118,3 +118,6 @@ footer { color:var(--muted); font-size:.8rem; text-align:center; padding:20px; }
 .kc-ok { color:var(--ok); } .kc-warn { color:var(--warn); }
 .kc-total { font-weight:700; margin:6px 0; }
 .kc-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+.kc-modal select, .kc-reassign select { width:100%; padding:7px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; margin-bottom:8px; }
+.kc-modal label { display:block; font-size:.85rem; font-weight:600; margin:6px 0 4px; }
+.kc-reassign { margin-top:8px; }

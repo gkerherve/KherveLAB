@@ -30,6 +30,22 @@ def pdt(q: QDateTime) -> datetime:
     return datetime(d.year(), d.month(), d.day(), t.hour(), t.minute())
 
 
+def fill_user_combo(combo: QComboBox, conn, select: int | None) -> None:
+    """Active users, searchable by typing part of a name or username."""
+    combo.clear()
+    for u in conn.execute("SELECT * FROM users WHERE status='active' ORDER BY full_name"):
+        label = f"{u['full_name']} ({u['username']})" + (f" · {u['group_name']}"
+                                                          if u["group_name"] else "")
+        combo.addItem(label, u["id"])
+    combo.setEditable(True)
+    combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    comp = combo.completer()
+    comp.setFilterMode(Qt.MatchFlag.MatchContains)
+    comp.setCompletionMode(comp.CompletionMode.PopupCompletion)
+    if select is not None:
+        combo.setCurrentIndex(max(0, combo.findData(select)))
+
+
 def _password(placeholder: str = "") -> QLineEdit:
     w = QLineEdit()
     w.setEchoMode(QLineEdit.EchoMode.Password)
@@ -262,10 +278,9 @@ class BookingDialog(QDialog):
             self.instrument.addItem(i["name"], i["id"])
         self.instrument.setCurrentIndex(max(0, self.instrument.findData(instrument_id)))
         self.user = QComboBox()
-        if me["role"] == "admin":   # the manager can book on someone's behalf
-            for u in conn.execute("SELECT * FROM users WHERE status='active' ORDER BY full_name"):
-                self.user.addItem(f"{u['full_name']} ({u['username']})", u["id"])
-            self.user.setCurrentIndex(max(0, self.user.findData(me["id"])))
+        self.for_others = logic.acts_for_others(me)
+        if self.for_others:          # the manager or a super user books on someone's behalf
+            fill_user_combo(self.user, conn, me["id"])
         self.start, self.end = QDateTimeEdit(qdt(start)), QDateTimeEdit(qdt(end))
         for w in (self.start, self.end):
             w.setCalendarPopup(True)
@@ -285,7 +300,7 @@ class BookingDialog(QDialog):
         self.info.setTextFormat(Qt.TextFormat.RichText)
         self.form = QFormLayout()
         self.form.addRow("Instrument", self.instrument)
-        if me["role"] == "admin":
+        if self.for_others:
             self.form.addRow("For", self.user)
         self.form.addRow("Start", self.start)
         self.form.addRow("End", self.end)
@@ -319,7 +334,7 @@ class BookingDialog(QDialog):
                                  (self.instrument.currentData(),)).fetchone()
 
     def _who(self):
-        uid = self.user.currentData() if self.me["role"] == "admin" else self.me["id"]
+        uid = self.user.currentData() if self.for_others else self.me["id"]
         return self.conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
     def sessions_mode(self) -> bool:
@@ -332,9 +347,11 @@ class BookingDialog(QDialog):
             label.setVisible(visible)
 
     def _instant(self, inst, who) -> bool:
-        return (self.me["role"] == "admin" or inst["approval"] == "auto" or
-                (inst["approval"] == "trained" and
-                 logic.is_authorised(self.conn, who["id"], inst["id"])))
+        return logic.instant_for(self.conn, inst, who, self.me)
+
+    def _rules_for(self, who):
+        """The manager's rights for the manager; a super user books as the person."""
+        return self.me if self.me["role"] == "admin" else who
 
     def _cost_text(self, inst, who, s: datetime, e: datetime, session_id: int | None) -> tuple:
         cur = db.setting(self.conn, "currency")
@@ -367,7 +384,7 @@ class BookingDialog(QDialog):
         for o in logic.occurrences(self.conn, inst["id"], d0, d1):
             if o.start < d0:            # last night's run belongs to the day before
                 continue
-            errors = logic.check(self.conn, inst, self.me, o.start, o.end)
+            errors = logic.check(self.conn, inst, self._rules_for(who), o.start, o.end)
             _, cost = self._cost_text(inst, who, o.start, o.end, o.session_id)
             end = f"{o.end:%H:%M}" + ("" if o.end.date() == o.start.date() else
                                       f" ({o.end:%a})")
@@ -412,7 +429,7 @@ class BookingDialog(QDialog):
         else:
             s, e = pdt(self.start.dateTime()), pdt(self.end.dateTime())
             # the manager's own rights decide the rules; the booker's category the rate
-            errors = logic.check(self.conn, inst, self.me, s, e)
+            errors = logic.check(self.conn, inst, self._rules_for(who), s, e)
             _, cost = self._cost_text(inst, who, s, e, None)
             lines = [f"<b>{cost}</b>", approval]
             lines += [f"<span style='color:#cf222e'>• {x}</span>" for x in errors]
@@ -456,18 +473,25 @@ class BookingDetailsDialog(QDialog):
         self.b = b
         admin = me["role"] == "admin"
         mine = b["user_id"] == me["id"]
-        show = admin or mine or db.setting(conn, "show_names") == "1"
+        self.for_others = logic.acts_for_others(me)
+        show = self.for_others or mine or db.setting(conn, "show_names") == "1"
         now = logic.fmt(logic.now_local(conn))
-        self.editable = (admin or (mine and b["start"] > now)) and \
+        self.editable = (admin or ((mine or self.for_others) and b["start"] > now)) and \
             b["status"] in ("pending", "approved")
         self.setWindowTitle(f"{b['instrument']} booking")
         self.setMinimumWidth(460)
         cur = db.setting(conn, "currency")
         form = QFormLayout()
         form.addRow("Instrument", QLabel(f"<b>{b['instrument']}</b>"))
-        form.addRow("Booked by", QLabel((b["full_name"] + (f" ({b['group_name']})"
-                                                            if b["group_name"] else ""))
-                                        if show else "another user"))
+        self.owner = None
+        if self.for_others and self.editable:          # give it to someone else
+            self.owner = QComboBox()
+            fill_user_combo(self.owner, conn, b["user_id"])
+            form.addRow("Booked for", self.owner)
+        else:
+            form.addRow("Booked by", QLabel((b["full_name"] + (f" ({b['group_name']})"
+                                                                if b["group_name"] else ""))
+                                            if show else "another user"))
         form.addRow("Status", QLabel(b["status"] + (f" — {b['note']}" if b["note"] else "")))
         self.start = QDateTimeEdit(qdt(logic.parse(b["start"])))
         self.end = QDateTimeEdit(qdt(logic.parse(b["end"])))
@@ -487,10 +511,11 @@ class BookingDetailsDialog(QDialog):
                 self.end.setEnabled(False)
         form.addRow("Start", self.start)
         form.addRow("End", self.end)
-        self.purpose = QPlainTextEdit(b["purpose"] if (admin or mine) else "")
+        private = self.for_others or mine
+        self.purpose = QPlainTextEdit(b["purpose"] if private else "")
         self.purpose.setFixedHeight(60)
         self.purpose.setEnabled(self.editable)
-        if admin or mine:
+        if private:
             form.addRow("Purpose", self.purpose)
             form.addRow("Cost", QLabel(f"{cur}{logic.cost(conn, b):,.2f} "
                                        f"({logic.price_label(conn, b)}, {b['category']})"))
@@ -519,6 +544,8 @@ class BookingDetailsDialog(QDialog):
 
     def _save(self):
         try:
+            if self.owner is not None and self.owner.currentData() != self.b["user_id"]:
+                logic.reassign(self.conn, self.b["id"], self.me, self.owner.currentData())
             status = logic.reschedule(self.conn, self.b["id"], self.me, pdt(self.start.dateTime()),
                                       pdt(self.end.dateTime()),
                                       purpose=self.purpose.toPlainText())

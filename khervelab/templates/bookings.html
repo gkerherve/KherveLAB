@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block title %}My bookings{% endblock %}
 {% block content %}
-<h1>My bookings</h1>
+<h1>{% if owner.id == me.id %}My bookings{% else %}Bookings of {{ owner.full_name }}{% endif %}</h1>
+{% if acting %}
+<form class="card row" method="get">
+  <div><label>Whose bookings</label><select name="user" onchange="this.form.submit()">
+    {% for u in users %}<option value="{{ u.id }}" {% if u.id == owner.id %}selected{% endif %}>{{ u.full_name }} ({{ u.username }})</option>{% endfor %}
+  </select></div>
+</form>
+{% endif %}
 <div class="card small">This month so far: <b>{{ '%.2f' % month.total_hours }} h</b>, <b>{{ month.total_cost | money }}</b> (approved bookings).</div>
 <div class="table-wrap"><table>
 <tr><th>Instrument</th><th>From</th><th>To</th><th>Status</th><th class="num">Cost</th><th>Note</th><th></th></tr>
@@ -11,9 +18,15 @@
   <td><span class="status {{ b.status }}">{{ b.status }}</span></td>
   <td class="num">{{ cost(b) | money }}</td>
   <td class="small">{{ b.purpose }}{% if b.note %}<br><span class="muted">Manager: {{ b.note }}</span>{% endif %}</td>
-  <td>{% if b.status in ('pending', 'approved') and b.start > now %}
+  <td>{% if b.status in ('pending', 'approved') and (b.start > now or me.role == 'admin') %}
     <form class="inline" method="post" action="{{ url_for('cancel', bid=b.id) }}" onsubmit="return confirm('Cancel this booking?')">
-      <input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger">Cancel</button></form>{% endif %}</td>
+      <input type="hidden" name="csrf" value="{{ csrf_token }}"><input type="hidden" name="back" value="{{ request.full_path }}"><button class="danger">Cancel</button></form>
+    {% if acting %}
+    <form class="inline" method="post" action="{{ url_for('reassign', bid=b.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}"><input type="hidden" name="back" value="{{ request.full_path }}">
+      <select name="user_id" style="width:auto">{% for u in users %}<option value="{{ u.id }}" {% if u.id == b.user_id %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}</select>
+      <button>Give to</button></form>
+    {% endif %}{% endif %}</td>
 </tr>
 {% else %}<tr><td colspan="7" class="muted">No bookings yet.</td></tr>{% endfor %}
 </table></div>

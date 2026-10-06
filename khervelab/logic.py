@@ -43,6 +43,15 @@ EXAMPLES = [
 ]
 
 
+ROLE_LABELS = {"user": "User", "superuser": "Super user (books for others)",
+               "admin": "Lab manager"}
+
+
+def acts_for_others(u) -> bool:
+    """Lab managers and super users can book and manage bookings for others."""
+    return u is not None and u["role"] in ("admin", "superuser")
+
+
 class BookingError(ValueError):
     pass
 
@@ -638,9 +647,13 @@ def book(conn, instrument_id: int, user_id: int, start: datetime, end: datetime,
         actor = user
         if actor_id and actor_id != user_id:
             actor = conn.execute("SELECT * FROM users WHERE id=?", (actor_id,)).fetchone()
-            if actor is None or actor["role"] != "admin":
-                raise BookingError("only the lab manager can book for someone else")
-        errors = check(conn, inst, actor, start, end, now=now)
+            if not acts_for_others(actor):
+                raise BookingError("only the lab manager or a super user can book for "
+                                   "someone else")
+        # the manager is held to the hard rules only; a super user books exactly
+        # as the person would (their rules, their approval)
+        rules_for = actor if actor["role"] == "admin" else user
+        errors = check(conn, inst, rules_for, start, end, now=now)
         if errors:
             raise BookingError("; ".join(errors))
         if actor["role"] == "admin" or inst["approval"] == "auto" or (
@@ -728,6 +741,7 @@ def quote(conn, inst, user, start: datetime, end: datetime, actor=None) -> dict:
     The web booking window shows exactly this; the app's dialog uses the
     same rules."""
     actor = actor or user
+    rules_for = actor if actor["role"] == "admin" else user   # as book() does
     cur = db.setting(conn, "currency")
     rate = rate_for(conn, inst["id"], user["category"])
     items = []
@@ -737,12 +751,12 @@ def quote(conn, inst, user, start: datetime, end: datetime, actor=None) -> dict:
             cost = price if price is not None else hours(conn, o.start, o.end) * rate
             items.append({"start": fmt(o.start), "end": fmt(o.end), "label": o.name,
                           "cost": round(cost, 2),
-                          "errors": check(conn, inst, actor, o.start, o.end)})
+                          "errors": check(conn, inst, rules_for, o.start, o.end)})
     else:
         s, e = normalise_range(conn, inst, start, end)
         items.append({"start": fmt(s), "end": fmt(e), "label": "",
                       "cost": round(hours(conn, s, e) * rate, 2),
-                      "errors": check(conn, inst, actor, s, e)})
+                      "errors": check(conn, inst, rules_for, s, e)})
     ok = [i for i in items if not i["errors"]]
     return {"items": items, "bookable": bool(ok), "currency": cur,
             "total": round(sum(i["cost"] for i in ok), 2),
@@ -763,11 +777,11 @@ def cancel(conn, booking_id: int, user: sqlite3.Row, note: str = "") -> None:
     if b is None:
         raise BookingError("no such booking")
     if user["role"] != "admin":
-        if b["user_id"] != user["id"]:
+        if b["user_id"] != user["id"] and not acts_for_others(user):
             raise BookingError("you can only cancel your own bookings")
         if parse(b["start"]) <= now_local(conn):
             raise BookingError("a booking that has started can only be cancelled by the "
-                               "administrator")
+                               "lab manager")
     if b["status"] not in ("pending", "approved"):
         raise BookingError("this booking is already closed")
     conn.execute("UPDATE bookings SET status='cancelled', decided_by=?, decided_at=?, note=? "
@@ -786,7 +800,7 @@ def reschedule(conn, booking_id: int, user: sqlite3.Row, start: datetime, end: d
             raise BookingError("this booking can no longer be changed")
         admin = user["role"] == "admin"
         if not admin:
-            if b["user_id"] != user["id"]:
+            if b["user_id"] != user["id"] and not acts_for_others(user):
                 raise BookingError("you can only change your own bookings")
             if parse(b["start"]) <= now_local(conn):
                 raise BookingError("a booking that has started can only be changed by the "
@@ -816,6 +830,27 @@ def reschedule(conn, booking_id: int, user: sqlite3.Row, start: datetime, end: d
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def reassign(conn, booking_id: int, actor, new_user_id: int) -> None:
+    """Give a booking to someone else (the lab manager or a super user). It is
+    re-priced at the new owner's category, as if they had booked it then."""
+    if not acts_for_others(actor):
+        raise BookingError("only the lab manager or a super user can change who a booking "
+                           "is for")
+    b = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    if b is None or b["status"] not in ("pending", "approved"):
+        raise BookingError("this booking can no longer be changed")
+    if actor["role"] != "admin" and parse(b["start"]) <= now_local(conn):
+        raise BookingError("a booking that has started can only be changed by the lab manager")
+    new = conn.execute("SELECT * FROM users WHERE id=?", (new_user_id,)).fetchone()
+    if new is None or new["status"] != "active":
+        raise BookingError("choose an active user")
+    inst = conn.execute("SELECT * FROM instruments WHERE id=?", (b["instrument_id"],)).fetchone()
+    rate = rate_for(conn, inst["id"], new["category"])
+    price = session_price(conn, b["session_id"], new["category"]) if b["session_id"] else None
+    conn.execute("UPDATE bookings SET user_id=?, rate=?, price=? WHERE id=?",
+                 (new_user_id, rate, price, booking_id))
 
 
 def cost(conn, b) -> float:

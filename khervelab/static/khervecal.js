@@ -294,15 +294,33 @@
     this.highlight(-1, -1);
   };
 
-  KherveCal.prototype.openBooking = function (start, end) {
-    var self = this, o = this.o;
+  KherveCal.prototype.openBooking = function (start, end, forUser, purposeText) {
+    var self = this, o = this.o, users = this.data.users || [];
     var url = o.quoteUrl + "?instrument=" + o.instrument + "&start=" + encodeURIComponent(start) +
-      "&end=" + encodeURIComponent(end);
+      "&end=" + encodeURIComponent(end) + (forUser ? "&for=" + forUser : "");
     fetch(url, { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (q) {
+      self.closeModal();
       var f = el("form");
       f.method = "post";
       f.action = o.bookUrl;
       f.appendChild(el("h2", null, "Book " + o.name));
+      if (users.length) {             // the lab manager or a super user books for someone
+        var lab = el("label", null, "For");
+        var sel = el("select");
+        sel.name = "user_id";
+        users.forEach(function (u) {
+          var opt = el("option", null, u.label);
+          opt.value = u.id;
+          if (String(u.id) === String(forUser || self.data.me)) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", function () {
+          // re-price and re-check for that person, keeping what was typed
+          self.openBooking(start, end, sel.value, f.querySelector("textarea").value);
+        });
+        f.appendChild(lab);
+        f.appendChild(sel);
+      }
       var list = el("div", "kc-items");
       q.items.forEach(function (it) {
         var row = el("div", "kc-item" + (it.errors.length ? " bad" : ""));
@@ -321,6 +339,7 @@
       var purpose = el("textarea");
       purpose.name = "purpose";
       purpose.placeholder = "What you will measure, samples";
+      if (purposeText) purpose.value = purposeText;
       f.appendChild(purpose);
       var first = q.items[0], last = q.items[q.items.length - 1];
       [["csrf", o.csrf], ["instrument_id", o.instrument],
@@ -350,6 +369,29 @@
     if (bk.purpose) box.appendChild(el("p", "muted", bk.purpose));
     if (bk.cost != null) box.appendChild(el("p", null, "Cost " + money(cur, bk.cost)));
     if (bk.issue) box.appendChild(el("p", "kc-error", bk.issue === "down" ? "The instrument is out of order during this booking." : "A problem is reported during this booking."));
+    var users = this.data.users || [];
+    if (users.length && bk.cancellable) {      // give the booking to someone else
+      var rf = el("form", "kc-reassign");
+      rf.method = "post";
+      rf.action = o.reassignUrl.replace("/0/", "/" + bk.id + "/");
+      var sel = el("select");
+      sel.name = "user_id";
+      users.forEach(function (u) {
+        var opt = el("option", null, u.label);
+        opt.value = u.id;
+        if (u.id === bk.user_id) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      [["csrf", o.csrf], ["back", location.pathname + "?date=" + bk.start.slice(0, 10)]].forEach(function (h) {
+        var i = el("input"); i.type = "hidden"; i.name = h[0]; i.value = h[1]; rf.appendChild(i);
+      });
+      var go = el("button", "kc-btn", "Give to");
+      go.type = "submit";
+      rf.appendChild(el("label", null, "Booked for"));
+      rf.appendChild(sel);
+      rf.appendChild(go);
+      box.appendChild(rf);
+    }
     var row = el("div", "kc-actions");
     if (bk.cancellable) {
       var f = el("form");

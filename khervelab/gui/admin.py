@@ -622,8 +622,8 @@ class UsersDialog(QDialog):
         self.full_name, self.email, self.group = QLineEdit(), QLineEdit(), QLineEdit()
         self.category, self.role, self.status = QComboBox(), QComboBox(), QComboBox()
         self.category.addItems(db.categories(conn))
-        self.role.addItem("User", "user")
-        self.role.addItem("Lab manager", "admin")
+        for key, label in logic.ROLE_LABELS.items():
+            self.role.addItem(label, key)
         self.status.addItems(["pending", "active", "disabled"])
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
@@ -639,10 +639,16 @@ class UsersDialog(QDialog):
         form.addRow(self.trained)
         save = QPushButton("Save user")
         save.clicked.connect(self._save)
+        their = QPushButton("Bookings…")
+        their.setToolTip("Open, change, cancel or add this person's bookings")
+        their.clicked.connect(self._bookings)
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.addLayout(form)
-        rl.addWidget(save)
+        buttons = QHBoxLayout()
+        buttons.addWidget(save)
+        buttons.addWidget(their)
+        rl.addLayout(buttons)
         split = QSplitter()
         split.addWidget(self.table)
         split.addWidget(right)
@@ -664,7 +670,8 @@ class UsersDialog(QDialog):
         self.table.setRowCount(len(rows))
         for r, u in enumerate(rows):
             for c, v in enumerate((u["full_name"], u["username"], u["group_name"], u["category"],
-                                   "manager" if u["role"] == "admin" else "user", u["status"])):
+                                   {"admin": "manager", "superuser": "super user"}
+                                   .get(u["role"], "user"), u["status"])):
                 it = QTableWidgetItem(v)
                 it.setData(Qt.ItemDataRole.UserRole, u["id"])
                 if c == 5 and v == "pending":
@@ -702,6 +709,13 @@ class UsersDialog(QDialog):
             it.setCheckState(Qt.CheckState.Checked if i["id"] in trained
                              else Qt.CheckState.Unchecked)
             self.trained.addItem(it)
+
+    def _bookings(self):
+        if self.current is None:
+            return
+        from .panels import MyBookingsDialog
+        owner = self.conn.execute("SELECT * FROM users WHERE id=?", (self.current,)).fetchone()
+        MyBookingsDialog(self.conn, self.me, self, owner=owner).exec()
 
     def _save(self):
         uid = self.current

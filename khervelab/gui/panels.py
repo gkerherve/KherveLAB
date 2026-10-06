@@ -145,11 +145,16 @@ class RequestsWidget(QWidget):
 
 
 class MyBookingsDialog(QDialog):
-    def __init__(self, conn, me, parent=None):
+    """A person's bookings: your own, or (for the lab manager or a super user)
+    anyone's, to open, change or cancel on their behalf."""
+
+    def __init__(self, conn, me, parent=None, owner=None):
         super().__init__(parent)
         self.conn, self.me = conn, me
+        self.owner = owner or me
         self.changed = False
-        self.setWindowTitle("My bookings")
+        self.setWindowTitle("My bookings" if self.owner["id"] == me["id"] else
+                            f"Bookings of {self.owner['full_name']}")
         self.resize(900, 520)
         self.summary = QLabel()
         self.table = _table(["Instrument", "From", "To", "Status", "Cost", "Purpose / note"], 5)
@@ -176,7 +181,7 @@ class MyBookingsDialog(QDialog):
         rows = self.conn.execute(
             "SELECT b.*, i.name AS instrument FROM bookings b JOIN instruments i "
             "ON i.id=b.instrument_id WHERE b.user_id=? ORDER BY b.start DESC LIMIT 500",
-            (self.me["id"],)).fetchall()
+            (self.owner["id"],)).fetchall()
         self.table.setRowCount(len(rows))
         for r, b in enumerate(rows):
             note = b["purpose"] + (f"  — manager: {b['note']}" if b["note"] else "")
@@ -187,7 +192,7 @@ class MyBookingsDialog(QDialog):
             self.table.item(r, 3).setForeground(QColor(colour))
         self.table.resizeColumnsToContents()
         today = date.today()
-        rep = reports.build(self.conn, today.replace(day=1), today, user_id=self.me["id"])
+        rep = reports.build(self.conn, today.replace(day=1), today, user_id=self.owner["id"])
         self.summary.setText(f"This month so far: <b>{rep.total_hours:.2f} h</b>, "
                              f"<b>{cur}{rep.total_cost:,.2f}</b> (approved bookings).")
 
@@ -222,7 +227,7 @@ class MyBookingsDialog(QDialog):
         self.refresh()
 
     def _statement(self):
-        dlg = ReportsDialog(self.conn, self.me, self, only_me=True)
+        dlg = ReportsDialog(self.conn, self.owner, self, only_me=True)
         dlg.exec()
 
 

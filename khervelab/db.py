@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL DEFAULT '',
     group_name TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    -- superuser: books and manages bookings on other users' behalf, no manager rights
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'superuser', 'admin')),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'disabled')),
     created TEXT NOT NULL
 );
@@ -174,7 +175,35 @@ MIGRATIONS = [
 ]
 
 
+def _widen_roles(conn: sqlite3.Connection) -> None:
+    """Labs created before the super user role have a users table whose CHECK
+    only allows user/admin. SQLite cannot alter a CHECK, so the table is
+    rebuilt with the same rows (ids, and so every reference, unchanged)."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+                       ).fetchone()
+    if row is None or "superuser" in row[0]:
+        return
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)")]
+    new_sql = SCHEMA[SCHEMA.index("CREATE TABLE IF NOT EXISTS users"):]
+    new_sql = new_sql[:new_sql.index(");") + 2].replace("users (", "users_new (", 1)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(new_sql.replace("IF NOT EXISTS ", ""))
+        names = ", ".join(cols)
+        conn.execute(f"INSERT INTO users_new ({names}) SELECT {names} FROM users")
+        conn.execute("DROP TABLE users")
+        conn.execute("ALTER TABLE users_new RENAME TO users")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
+    _widen_roles(conn)
     added = set()
     for table, column, decl in MIGRATIONS:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}

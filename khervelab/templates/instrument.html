@@ -32,6 +32,7 @@ new KherveCal(document.getElementById("calendar"), {
   instrument: {{ inst.id }}, name: {{ inst.name | tojson }},
   calendarUrl: {{ url_for('calendar_data') | tojson }}, quoteUrl: {{ url_for('quote') | tojson }},
   bookUrl: {{ url_for('book') | tojson }}, cancelUrl: {{ url_for('cancel', bid=0) | tojson }},
+  reassignUrl: {{ url_for('reassign', bid=0) | tojson }},
   csrf: {{ csrf_token | tojson }}, today: {{ today | tojson }}, nowMinutes: {{ now_minutes }},
   date: {{ request.args.get('date', '') | tojson }} || null
 });

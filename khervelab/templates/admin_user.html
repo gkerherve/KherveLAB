@@ -12,7 +12,7 @@
   </div>
   <div class="row">
     <div><label>Rate category</label><select name="category">{% for c in categories %}<option {% if u.category == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
-    <div><label>Role</label><select name="role"><option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option><option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Lab manager (administrator)</option></select></div>
+    <div><label>Role</label><select name="role">{% for key, label in role_labels.items() %}<option value="{{ key }}" {% if u.role == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label>Status</label><select name="status">{% for s in ('pending','active','disabled') %}<option {% if u.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
   </div>
   <label>Set a new password (leave empty to keep)</label><input type="password" name="new_password" autocomplete="new-password">
@@ -24,6 +24,7 @@
   </div>
 </div>
 <div class="actions"><button class="primary">Save</button> <a href="{{ url_for('admin_users') }}">Cancel</a>
-  <a href="{{ url_for('admin_reports', user=u.id) }}">Usage and costs for {{ u.full_name }}</a></div>
+  <a href="{{ url_for('admin_reports', user=u.id) }}">Usage and costs for {{ u.full_name }}</a>
+  <a href="{{ url_for('my_bookings', user=u.id) }}">Bookings of {{ u.full_name }}</a></div>
 </form>
 {% endblock %}

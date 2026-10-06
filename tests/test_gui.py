@@ -557,3 +557,40 @@ def test_remove_instrument_from_the_editor(qtbot, lab):
     dlg._remove()                                    # the question is answered Yes
     assert conn.execute("SELECT COUNT(*) FROM instruments WHERE id=?", (new,)).fetchone()[0] == 0
     assert dlg.list.count() == 2
+
+
+def test_superuser_books_for_someone_in_the_app(qtbot, lab):
+    conn = lab["conn"]
+    sid = logic.create_user(conn, "sue", "suepass12", "Sue Super", role="superuser",
+                            status="active")
+    sue = conn.execute("SELECT * FROM users WHERE id=?", (sid,)).fetchone()
+    d = weekday()
+    dlg = BookingDialog(conn, sue, lab["xps"], at(d, 9), at(d, 11))
+    qtbot.addWidget(dlg)
+    assert dlg.user.isVisibleTo(dlg)                              # the "For" list
+    dlg.user.setCurrentIndex(dlg.user.findData(lab["alice"]["id"]))
+    dlg._ok()
+    b = conn.execute("SELECT * FROM bookings").fetchone()
+    assert b["user_id"] == lab["alice"]["id"] and b["status"] == "approved"   # alice is trained
+    # reassign from the booking details
+    det = BookingDetailsDialog(conn, sue, b["id"])
+    qtbot.addWidget(det)
+    assert det.owner is not None
+    det.owner.setCurrentIndex(det.owner.findData(sid))
+    det._save()
+    assert conn.execute("SELECT user_id FROM bookings").fetchone()[0] == sid
+    # sue sees someone's bookings through the toolbar action
+    st = QSettings(str(lab["dir"] / "su.ini"), QSettings.Format.IniFormat)
+    w = MainWindow(conn, sue, lab["dir"], st)
+    qtbot.addWidget(w)
+    from khervelab.gui.panels import MyBookingsDialog
+    other = MyBookingsDialog(conn, sue, owner=lab["alice"])
+    qtbot.addWidget(other)
+    assert other.windowTitle() == "Bookings of Alice Martin"
+    assert w.requests is None                                     # no manager tools
+
+
+def test_users_editor_offers_the_superuser_role(qtbot, lab):
+    dlg = UsersDialog(lab["conn"], lab["boss"])
+    qtbot.addWidget(dlg)
+    assert dlg.role.findData("superuser") >= 0

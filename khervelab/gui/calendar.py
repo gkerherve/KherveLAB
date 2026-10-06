@@ -239,14 +239,16 @@ class CalendarView(QGraphicsView):
             f"ON u.id=b.user_id WHERE b.instrument_id IN ({marks}) "
             "AND b.status IN ('pending','approved') AND b.start < ? AND b.end > ? "
             "ORDER BY b.start", (*ids, logic.fmt(end), logic.fmt(start))).fetchall()
-        show = db.setting(self.conn, "show_names") == "1" or self.me["role"] == "admin"
+        acting = logic.acts_for_others(self.me)
+        show = db.setting(self.conn, "show_names") == "1" or acting
         now = logic.fmt(logic.now_local(self.conn))
         out = []
         for r in rows:
             d = dict(r)
             d["mine"] = r["user_id"] == self.me["id"]
             d["who"] = "You" if d["mine"] else (r["full_name"] if show else "Booked")
-            d["editable"] = self.me["role"] == "admin" or (d["mine"] and r["start"] > now)
+            d["editable"] = self.me["role"] == "admin" or ((d["mine"] or acting)
+                                                           and r["start"] > now)
             out.append(d)
         return out
 
@@ -433,16 +435,16 @@ class CalendarView(QGraphicsView):
             if self.mode == WEEK and not self.single and len(self.instruments) > 1:
                 title, sub = (inst["name"] if inst else "?"), f"{when} · {b['who']}{pend}"
             else:
-                private = b["mine"] or self.me["role"] == "admin"
+                private = b["mine"] or logic.acts_for_others(self.me)
                 title, sub = f"{when} {b['who']}", ((b["purpose"] or "") if private else "") + pend
             tip = (f"<b>{inst['name'] if inst else ''}</b><br>{s:%a %d %b %H:%M} – "
                    f"{e:%a %d %b %H:%M}<br>{b['who']}"
                    + (f" ({b['group_name']})" if b["group_name"] and b["who"] != "Booked" else "")
                    + f"<br>Status: {b['status']}"
-                   + (f"<br>{b['purpose']}" if b["purpose"] and (b["mine"] or
-                                                               self.me["role"] == "admin") else "")
+                   + (f"<br>{b['purpose']}" if b["purpose"] and (
+                       b["mine"] or logic.acts_for_others(self.me)) else "")
                    + (f"<br>Cost: {cur}{logic.cost(self.conn, b):,.2f}"
-                      if b["mine"] or self.me["role"] == "admin" else ""))
+                      if b["mine"] or logic.acts_for_others(self.me) else ""))
             if outline:
                 tip += f"<br><b>{'Out of order' if state == 'down' else 'Problem reported'}</b>"
             self.scene().addItem(BookingItem(seg, rect, colour, title, sub, tip,

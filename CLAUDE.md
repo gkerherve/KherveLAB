@@ -101,8 +101,14 @@ Stack:
 - The lab manager is held only to the hard rules (no overlap, end after
   start). A manager booking for someone else (`actor_id`) is approved and
   charged at that person's rate.
-- Other users' booking purposes and costs are visible only to their owner
-  and the manager.
+- Roles are `user`, `superuser` and `admin` (`logic.ROLE_LABELS`). Use
+  `logic.acts_for_others(u)` (admin or superuser) to decide who may book
+  for, move, cancel or reassign others' bookings (`logic.reassign`
+  re-prices). A super user books with the person's rules and approval;
+  only the admin is exempt. `db._widen_roles` rebuilds old `users` tables
+  whose CHECK lacks `superuser`.
+- Other users' booking purposes and costs are visible only to their owner,
+  super users and the manager.
 - The GUI starts with nobody logged in (`main_window.GUEST`): the schedule
   is read-only, and booking actions ask to log in and then continue
   (`switchUser(user, then)`). `gui/app.py` builds one `MainWindow` per user

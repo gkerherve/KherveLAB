@@ -142,6 +142,9 @@ class MainWindow(QMainWindow):
             tb.addAction(act("My bookings", self.my_bookings, "Ctrl+B"))
             tb.addAction(act("Report a problem…", self.report_issue, None,
                              "Report a problem or an accident with an instrument"))
+            if logic.acts_for_others(self.me):
+                tb.addAction(act("Someone's bookings…", self.someones_bookings, None,
+                                 "See, change or cancel the bookings of another user"))
 
         self.requests = None
         if self.admin:
@@ -178,7 +181,8 @@ class MainWindow(QMainWindow):
             for wdg in (hint, register, self.login_button):
                 al.addWidget(wdg)
         else:
-            role = "lab manager" if self.admin else (self.me["category"] or "user")
+            role = ("lab manager" if self.admin else "super user"
+                    if self.me["role"] == "superuser" else (self.me["category"] or "user"))
             who = QPushButton(f"{self.me['full_name']} ({role})")
             who.setFlat(True)
             who.setToolTip("My account")
@@ -240,7 +244,8 @@ class MainWindow(QMainWindow):
         if self.guest:
             self.user_label.setText("  Not logged in  ")
         else:
-            role = "lab manager" if self.admin else (self.me["category"] or "user")
+            role = ("lab manager" if self.admin else "super user"
+                    if self.me["role"] == "superuser" else (self.me["category"] or "user"))
             self.user_label.setText(f"  {self.me['full_name']} ({role})  ")
         self.net_label.setText("  Sharing on " + self.server.urls()[-1] + "  "
                                if self.server.running else "")
@@ -471,6 +476,19 @@ class MainWindow(QMainWindow):
 
     def reports(self):
         ReportsDialog(self.conn, self.me, self).exec()
+
+    def someones_bookings(self):
+        from PyQt6.QtWidgets import QInputDialog
+        users = self.conn.execute("SELECT * FROM users WHERE status='active' ORDER BY full_name"
+                                  ).fetchall()
+        labels = [f"{u['full_name']} ({u['username']})" for u in users]
+        choice, ok = QInputDialog.getItem(self, "Someone's bookings", "Whose bookings?", labels,
+                                          0, True)
+        if not ok or choice not in labels:
+            return
+        owner = users[labels.index(choice)]
+        MyBookingsDialog(self.conn, self.me, self, owner=owner).exec()
+        self.refresh()
 
     def report_issue(self):
         tab = self.tabs.currentWidget()

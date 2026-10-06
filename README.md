@@ -150,6 +150,34 @@ How sessions look and behave:
 - **The lab manager** can still block free-form time on a session instrument,
   for example for maintenance.
 
+## Booking for someone else: lab manager and super users
+
+Someone can come to the lab manager, or to a **super user**, and have time
+booked for them. There are three roles, set in **Users**:
+
+| Role | Can |
+|---|---|
+| **User** | book and manage their own bookings |
+| **Super user** | do everything a user can, **for anyone**: book, move, cancel and reassign others' bookings (not yet started), and see anyone's bookings. Bookings follow that person's rules, approval and price. No management rights. |
+| **Lab manager** | everything, including instruments, users, settings and reports. A manager's booking for someone is approved at once and held only to the hard rules (no overlap), at that person's price. |
+
+In the app:
+
+- **Booking for someone:** the booking window has a searchable **For**
+  list (type part of a name). The price and the approval line follow the
+  person chosen.
+- **Changing who a booking belongs to:** in a booking's details, **Booked
+  for** gives it to someone else. It is re-priced at their category.
+- **Someone's bookings…** (toolbar), or **Users ▸ Bookings…**, opens one
+  person's bookings to open, change or cancel.
+
+On the web pages it is the same:
+
+- **Booking:** a **For** list in the booking window. Changing it
+  re-prices and re-checks for that person.
+- **A booking's popup:** **Booked for … Give to** reassigns it.
+- **My bookings:** has a **Whose bookings** picker.
+
 ## The lab manager
 
 The manager sees everything the users see, plus the following:
