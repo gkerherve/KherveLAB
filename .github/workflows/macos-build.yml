@@ -1,3 +1,8 @@
+# MANUAL ONLY, ARM64 ONLY (Nov 2026): Mac DMGs are built on the user's own Mac
+# (Apple Silicon); no Intel DMG is made any more. This workflow no longer runs on a
+# tag push; start it from the Actions tab only as a fallback. Comments below that
+# mention x86_64/Intel or tag pushes describe the old setup.
+
 name: macOS build
 
 # PyInstaller cannot cross-compile, so the .app has to be produced on a Mac.
@@ -22,9 +27,6 @@ name: macOS build
 #   git tag macos-v0.28.N && git push origin macos-v0.28.N
 
 on:
-  push:
-    tags:
-      - "macos-v*"
   workflow_dispatch:
 
 jobs:
@@ -35,8 +37,6 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45    # a hung test must not hold a runner for 6 hours
 
